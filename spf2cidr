@@ -255,6 +255,12 @@ adddom
 
 	$d =~ s/\.$//;
 
+	if (defined(@doms)) {
+		if (grep /^$d$/,@doms) {
+			return;
+		}
+	}
+
 	push @doms,$d;
 }
 
@@ -264,6 +270,12 @@ addhost
 	my ($d) = @_;
 
 	$d =~ s/\.$//;
+
+	if (defined(@hosts)) {
+		if (grep /^$d$/,@hosts) {
+			return;	
+		}
+	}
 
 	push @hosts,$d;
 }
