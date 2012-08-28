@@ -285,6 +285,11 @@ addmx
 {
 	my ($d) = @_;
 	$d =~ s/\.$//;
+	if (defined(@mx)) {
+		if (grep /^$d$/,@mx) {
+			return;
+		}
+	}
 	push @mx,$d;
 }
 
