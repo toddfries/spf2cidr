@@ -159,6 +159,13 @@ for my $dom (@mx)
 			addhost($host);
 			next;
 		}
+		if ($line =~ m/(has no MX record|NXDOMAIN)/) {
+			if ($verbose > 0) {
+				printf "# human error: 'host -t mx %s' -> ".
+				    "'%s'\n", $dom, $line;
+			}
+			next;
+		}
 		printf "# Unmatched 'host -t mx %s' output line: '%s'\n",
 		    $dom, $line;
 	}
