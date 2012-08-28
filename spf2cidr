@@ -1,0 +1,278 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2012 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+
+$ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
+
+umask(037);
+
+my $verbose = 0;
+
+if (defined($ARGV[0])) {
+	if ($ARGV[0] =~ /^-v$/) {
+		shift @ARGV;
+		$verbose++;
+	}
+}
+
+our %cidrs;
+
+our @doms = ("google.com", "gmail.com", "youtube.com", "picasa.com",
+	"sketchup.com", "blogger.com",
+	"hotmail.com", "msn.com", "microsoft.com", "live.com",
+	"facebook.com", "twitter.com", "ebay.com",
+	"about.com", "linkedin.com", "nimbuzz.com",
+	"aol.com", "freebsd.org", "yahoo.com", "flickr.com",
+	"godaddy.com", "arpnetworks.com", "abc.com", "msnbc.com", "apple.com",
+	"netcraft.com", "emailhosting.com", "runbox.com", "fusemail.com",
+	"biz.rr.com", "123greetings.com", "263xmail.com", "krypt.com",
+	"acs-inc.com", "postini.com", "addisonsearch.com",
+	"bcbsok.com", "bcbsil.com", "bcbstx.com", "bcbs.com",
+	"progressive.com", "tmo.blackberry.net", "walmart.com",
+	"samsclub.com", "snapfish.com", "linux.org", "usps.com", "ups.com",
+	"fedex.com", "dhl.com", "amazon.com", "delta.com", "orbitz.com",
+	"usairways.com", "aa.com", "spirit.com", "usatoday.com", "expedia.com",
+	"travelocity.com", "alaskaair.com", "britishairways.com",
+	"flyfrontier.com",
+	"xe.com", "paychex.com", "ingdirect.com", "boa.com", "chase.com",
+	"bankofamerica.com", "statefarm.com", "paypal.com", "hcsc.net",
+	"mls.lib.ok.us", "dropbox.com", "wunderground.com", "groupon.com",
+	"nzbindex.nl", "binsearch.info", "zendesk.com", "saddleback.com",
+	"scientificamerican.com", "startcom.org", "apache.com",
+	"wordpress.com", "github.com"
+	);
+our @mx;
+our @hosts;
+
+my $i = 0;
+while ($i < ($#doms + 1) )
+{
+	my $dom = $doms[$i++];
+	$dom =~ s/\.$//;
+	if ($verbose > 0) {
+		printf("#\n#     %s\n#\n",$dom);
+	}
+	open(HOST,"host -t TXT $dom.|");
+	while (<HOST>) {
+		my $line;
+		chomp($line = $_);
+		if (!($line =~ /descriptive text/)) {
+			next;
+		}
+		$line =~ s/" "/ /g;
+		$line =~ s/^.*"(.*)"$/$1/;
+		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
+			printf "# Non SPF TXT record '%s' for '%s'\n",
+			    $line, $dom;
+			next;
+		}
+		for my $item (split(/ +/,$line))
+		{
+			my $olditem = $item;
+			$item =~ s/^[\+\?\~-]//;
+			if ($verbose > 0) {
+				if ($olditem eq $item) {
+					printf "# %s (%s)\n", $item, $dom;
+				} else {
+					printf "# %s -> %s (%s)\n", $olditem, $item, $dom;
+				}
+			}
+			if ($item =~ /^v=/) {
+				next;
+			}
+			if ($item =~ /^spf2.0\/pra/) {
+				next;
+			}
+			if ($item =~ /^ptr:(.*)$/) {
+				help($item,$dom);
+				next;
+			}
+			if ($item =~ /^ptr$/) {
+				help($item, $dom);
+				next;
+			}
+			if ($item =~ /^a:(.*)$/) {
+				addhost($1);
+				next;
+			}
+			if ($item =~ /^a$/) {
+				addhost($dom);
+				next;
+			}
+			if ($item =~ /^ip[46]:(.*)$/) {
+				addcidr($1, $dom);
+				next;
+			}
+			if ($item =~ /^include:(.*)$/) {
+				adddom($1);
+				next;
+			}
+			if ($item =~ /^redirect=(.*)$/) {
+				adddom($1);
+				next;
+			}
+			if ($item =~ /^mx$/) {
+				addmx($dom);
+				next;
+			}
+			if ($item =~ /^mx:(.*)$/) {
+				addmx($1);
+				next;
+			}
+			if ($item =~ /^exists:(.*)$/) {
+				help($item, $dom);
+				next;
+			}
+			if ($item =~ /all/) {
+				next;
+			}
+			printf "# Unhandled item '%s' from dom '%s'\n",
+			    $item, $dom;
+		}
+	}
+	close(HOST);
+}
+
+for my $dom (@mx)
+{
+	open(HOST,"host -t mx $dom.|");
+	while(<HOST>) {
+		my $line;
+		chomp($line = $_);
+		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
+			my $host = $1;
+			addhost($host);
+			next;
+		}
+		printf "# Unmatched 'host -t mx %s' output line: '%s'\n",
+		    $dom, $line;
+	}
+	close(HOST);
+		
+}
+$i = 0;
+# sort and unique @hosts, sure we add more, but at least it cuts down some
+# excessive fork()'s
+while ($i < ($#hosts + 1))
+{
+	my $dom = $hosts[$i++];
+	open(HOST,"host $dom.|");
+	while(<HOST>) {
+		my $line;
+		chomp($line = $_);
+		if ($line =~ m/has address (.*)$/) {
+			addcidr($1, $dom);
+			next;
+		}
+		if ($line =~ m/mail is handled by/) {
+			next;
+		}
+		if ($line =~ m/has IPv6 address (.*)$/) {
+			addcidr($1, $dom);
+			next;
+		}
+		if ($line =~ m/is an alias for (.*)$/) {
+			addhost($1);
+			next;
+		}
+		printf "# Unmatched 'host %s' output line: '%s'\n",
+		    $dom, $line;
+	}
+	close(HOST);
+}
+
+for my $c (keys %cidrs)
+{
+	my $str = "";
+	my $olds = "";
+	for my $s (sort @{$cidrs{$c}}) {
+		if ($olds =~ /^$s$/i) {
+			next;
+		}
+		$olds = $s;
+		if (length($str) > 0) {
+			$str .= ", ".$s;
+		} else {
+			$str = $s;
+		}
+	}
+	printf "%40s\t# %s\n",$c,$str;
+}
+
+#
+# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
+#
+# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
+#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
+#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
+#
+######################################################################
+
+sub
+help
+{
+	my ($item,$dom) = @_;
+
+	printf "# XXX! Would like to implement '%s' from '%s', diffs welcomed!\n", $item, $dom;
+}
+
+sub
+addcidr
+{
+	my ($c,$d) = @_;
+
+	$d =~ s/\.$//;
+
+	my @clist;
+	if (defined($cidrs{$c})) {
+		@clist = @{$cidrs{$c}};
+		if (grep /^$d$/,@clist) {
+			return;
+		}
+	}
+	push @{$cidrs{$c}}, $d;
+}
+
+sub
+adddom
+{
+	my ($d) = @_;
+
+	$d =~ s/\.$//;
+
+	push @doms,$d;
+}
+
+sub
+addhost
+{
+	my ($d) = @_;
+
+	$d =~ s/\.$//;
+
+	push @hosts,$d;
+}
+
+sub
+addmx
+{
+	my ($d) = @_;
+	$d =~ s/\.$//;
+	push @mx,$d;
+}
+
