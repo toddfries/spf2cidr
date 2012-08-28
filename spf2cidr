@@ -239,11 +239,22 @@ help
 }
 
 sub
+sanitize
+{
+	my ($d) = @_;
+
+	$d =~ s/\.$//;
+	$d = lc($d);
+
+	return $d;
+}
+
+sub
 addcidr
 {
 	my ($c,$d) = @_;
 
-	$d =~ s/\.$//;
+	$d = sanitize($d);
 
 	my @clist;
 	if (defined($cidrs{$c})) {
@@ -252,6 +263,7 @@ addcidr
 			return;
 		}
 	}
+
 	push @{$cidrs{$c}}, $d;
 }
 
@@ -260,7 +272,7 @@ adddom
 {
 	my ($d) = @_;
 
-	$d =~ s/\.$//;
+	$d = sanitize($d);
 
 	if (defined(@doms)) {
 		if (grep /^$d$/,@doms) {
@@ -276,7 +288,7 @@ addhost
 {
 	my ($d) = @_;
 
-	$d =~ s/\.$//;
+	$d = sanitize($d);
 
 	if (defined(@hosts)) {
 		if (grep /^$d$/,@hosts) {
@@ -291,12 +303,15 @@ sub
 addmx
 {
 	my ($d) = @_;
-	$d =~ s/\.$//;
+
+	$d = sanitize($d);
+
 	if (defined(@mx)) {
 		if (grep /^$d$/,@mx) {
 			return;
 		}
 	}
+
 	push @mx,$d;
 }
 
