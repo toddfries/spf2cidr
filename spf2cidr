@@ -40,7 +40,8 @@ our @doms = ("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"aol.com", "freebsd.org", "yahoo.com", "flickr.com",
 	"godaddy.com", "arpnetworks.com", "abc.com", "msnbc.com", "apple.com",
 	"netcraft.com", "emailhosting.com", "runbox.com", "fusemail.com",
-	"biz.rr.com", "123greetings.com", "263xmail.com", "krypt.com",
+	"rr.com", "biz.rr.com", "123greetings.com", "263xmail.com",
+	"krypt.com",
 	"acs-inc.com", "postini.com", "addisonsearch.com",
 	"bcbsok.com", "bcbsil.com", "bcbstx.com", "bcbs.com",
 	"progressive.com", "tmo.blackberry.net", "walmart.com",
@@ -54,7 +55,11 @@ our @doms = ("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"mls.lib.ok.us", "dropbox.com", "wunderground.com", "groupon.com",
 	"nzbindex.nl", "binsearch.info", "zendesk.com", "saddleback.com",
 	"scientificamerican.com", "startcom.org", "apache.com",
-	"wordpress.com", "github.com"
+	"wordpress.com", "github.com", "messagelabs.com", "hughes.net",
+	"bluehost.com", "nmh.org", "kijiji.com", "dell.com",
+	"teliax.com", "craigslist.org", "skynet.be", "ljbtc.com",
+	"ameritrade.com", "securityfocus.com", "collab.net", "sentex.ca",
+	"comcast.net", "cox.net"
 	);
 our @mx;
 our @hosts;
