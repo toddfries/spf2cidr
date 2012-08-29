@@ -279,7 +279,7 @@ adddom
 
 	$d = sanitize($d);
 
-	if (defined(@doms)) {
+	if (@doms) {
 		if (grep /^$d$/,@doms) {
 			return;
 		}
@@ -295,7 +295,7 @@ addhost
 
 	$d = sanitize($d);
 
-	if (defined(@hosts)) {
+	if (@hosts) {
 		if (grep /^$d$/,@hosts) {
 			return;	
 		}
@@ -311,7 +311,7 @@ addmx
 
 	$d = sanitize($d);
 
-	if (defined(@mx)) {
+	if (@mx) {
 		if (grep /^$d$/,@mx) {
 			return;
 		}
