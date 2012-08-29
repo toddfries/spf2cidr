@@ -19,9 +19,12 @@ use warnings;
 
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
 
-umask(037);
-
 my $verbose = 0;
+our @doms;
+our %cidrs;
+our @mx;
+our @hosts;
+
 
 if (defined($ARGV[0])) {
 	if ($ARGV[0] =~ /^-v$/) {
@@ -30,9 +33,22 @@ if (defined($ARGV[0])) {
 	}
 }
 
-our %cidrs;
-
-our @doms = ("google.com", "gmail.com", "youtube.com", "picasa.com",
+my $domfile = "/etc/mail/spf-domains";
+if (-f $domfile ) {
+	open(DOMS,$domfile);
+	while(<DOMS>) {
+		s/#.*$//;
+		s/[ \t]*//;
+		if (length($_) > 0) {
+			my $dom;
+			chomp($dom = $_);
+			adddom($dom);
+		}
+	}
+	close(DOMS);
+else {
+	@doms =
+	("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"sketchup.com", "blogger.com",
 	"hotmail.com", "msn.com", "microsoft.com", "live.com",
 	"facebook.com", "twitter.com", "ebay.com",
@@ -61,8 +77,8 @@ our @doms = ("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"ameritrade.com", "securityfocus.com", "collab.net", "sentex.ca",
 	"comcast.net", "cox.net"
 	);
-our @mx;
-our @hosts;
+}
+
 
 my $i = 0;
 while ($i < ($#doms + 1) )
