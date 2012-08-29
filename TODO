@@ -3,3 +3,24 @@ o add -t <table> to update a file and subsequently a pf table
 o add -n to not update a pf table (testing mode!)
 o make perl query dns directly instead of forking 'host...|'
 o makefiles for proper installation and potential package management integration
+o keep a persistent database of mappings, some hosts change so frequently I
+  wonder if they are doing some round-robin dns and therefore a host might
+  keep a cidr entry active if it was found to resolve to a given ip in the
+  last X days (365 by default??)
+  Examples:
+
+  -                           68.232.129.11       # mx1.dhl.iphmx.com
+  -                           68.232.135.103      # mx1.dhl.iphmx.com
+  -                           68.232.135.98       # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+  -                           68.232.135.99       # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+  +                           68.232.135.98       # mx1.dhl.iphmx.com
+  +                           68.232.135.99       # mx1.dhl.iphmx.com
+  +                           68.232.129.11       # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+  +                           68.232.130.32       # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+                              68.232.129.199      # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+                              68.232.129.200      # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+                              68.232.135.100      # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+                              68.232.135.101      # mx1.dhl.iphmx.com, mx2.dhl.iphmx.com
+  
+  -                           66.220.155.17       # smtpin.mx.facebook.com
+  +                           66.220.155.16       # smtpin.mx.facebook.com
