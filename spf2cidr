@@ -46,7 +46,7 @@ if (-f $domfile ) {
 		}
 	}
 	close(DOMS);
-else {
+} else {
 	@doms =
 	("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"sketchup.com", "blogger.com",
