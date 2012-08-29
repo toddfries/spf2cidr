@@ -95,6 +95,9 @@ while ($i < ($#doms + 1) )
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
+		if ($line =~ /"google-site-verification=/) {
+			next;
+		}
 		$line =~ s/" "/ /g;
 		$line =~ s/^.*"(.*)"$/$1/;
 		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
