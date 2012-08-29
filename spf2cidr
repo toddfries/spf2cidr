@@ -95,7 +95,13 @@ while ($i < ($#doms + 1) )
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
-		if ($line =~ /"google-site-verification=/) {
+		if ($line =~ /"google-site-verification/) {
+			next;
+		}
+		if ($line =~ /"((ms|osiagentregurl|v=msv1)=|contact: )/i) {
+			next;
+		}
+		if ($line =~ /v=DKIM1/) {
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
