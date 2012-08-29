@@ -1,0 +1,5 @@
+o make domains exist in an external conf file
+o add -t <table> to update a file and subsequently a pf table
+o add -n to not update a pf table (testing mode!)
+o make perl query dns directly instead of forking 'host...|'
+o makefiles for proper installation and potential package management integration
