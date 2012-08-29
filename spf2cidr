@@ -163,6 +163,12 @@ while ($i < ($#doms + 1) )
 				help($item, $dom);
 				next;
 			}
+			if ($item =~ /^exp=/) {
+				# if someday spamd.conf is generated, this
+				# could be used to feed the error message there
+				# maybe ..
+				next;
+			}
 			if ($item =~ /all/) {
 				next;
 			}
@@ -211,7 +217,7 @@ while ($i < ($#hosts + 1))
 			addcidr($1, $dom);
 			next;
 		}
-		if ($line =~ m/mail is handled by/) {
+		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/) {
 			next;
 		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
