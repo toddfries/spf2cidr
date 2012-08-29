@@ -98,8 +98,9 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /"google-site-verification=/) {
 			next;
 		}
+		$line =~ s/^[^"]*"(.*)"$/$1/;
 		$line =~ s/" "/ /g;
-		$line =~ s/^.*"(.*)"$/$1/;
+		$line =~ s/includ e:/include:/g;
 		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
 			printf "# Non SPF TXT record '%s' for '%s'\n",
 			    $line, $dom;
