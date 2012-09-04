@@ -34,7 +34,13 @@ if (defined($ARGV[0])) {
 }
 
 my $domfile = "/etc/mail/spf-domains";
-if (-f $domfile ) {
+
+if (defined($ARGV[0])) {
+	for my $dom (@ARGV) {
+		adddom($dom);
+	}
+} else {
+    if (-f $domfile) {
 	open(DOMS,$domfile);
 	while(<DOMS>) {
 		s/#.*$//;
@@ -46,7 +52,7 @@ if (-f $domfile ) {
 		}
 	}
 	close(DOMS);
-} else {
+    } else {
 	@doms =
 	("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"sketchup.com", "blogger.com",
@@ -77,6 +83,7 @@ if (-f $domfile ) {
 	"ameritrade.com", "securityfocus.com", "collab.net", "sentex.ca",
 	"comcast.net", "cox.net"
 	);
+   }
 }
 
 
@@ -88,10 +95,9 @@ while ($i < ($#doms + 1) )
 	if ($verbose > 0) {
 		printf("#\n#     %s\n#\n",$dom);
 	}
-	open(HOST,"host -t TXT $dom.|");
-	while (<HOST>) {
+	for my $l (hostinfo("-t txt $dom.")) {
 		my $line;
-		chomp($line = $_);
+		chomp($line = $l);
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
@@ -182,15 +188,13 @@ while ($i < ($#doms + 1) )
 			    $item, $dom;
 		}
 	}
-	close(HOST);
 }
 
 for my $dom (@mx)
 {
-	open(HOST,"host -t mx $dom.|");
-	while(<HOST>) {
+	for my $l (hostinfo("-t mx $dom.")) {
 		my $line;
-		chomp($line = $_);
+		chomp($line = $l);
 		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
 			my $host = $1;
 			addhost($host);
@@ -206,7 +210,6 @@ for my $dom (@mx)
 		printf "# Unmatched 'host -t mx %s' output line: '%s'\n",
 		    $dom, $line;
 	}
-	close(HOST);
 		
 }
 $i = 0;
@@ -215,10 +218,9 @@ $i = 0;
 while ($i < ($#hosts + 1))
 {
 	my $dom = $hosts[$i++];
-	open(HOST,"host $dom.|");
-	while(<HOST>) {
+	for my $l (hostinfo("$dom.")) {
 		my $line;
-		chomp($line = $_);
+		chomp($line = $l);
 		if ($line =~ m/has address (.*)$/) {
 			addcidr($1, $dom);
 			next;
@@ -237,7 +239,6 @@ while ($i < ($#hosts + 1))
 		printf "# Unmatched 'host %s' output line: '%s'\n",
 		    $dom, $line;
 	}
-	close(HOST);
 }
 
 for my $c (keys %cidrs)
@@ -274,6 +275,16 @@ help
 
 	printf "# XXX! Would like to implement '%s' from '%s', diffs welcomed!\n", $item, $dom;
 }
+
+sub hostinfo
+{
+	my ($arg) = @_;
+	open(HOST,"host $arg|");
+	my @list = <HOST>;
+	close(HOST);
+	return sort @list;
+}
+
 
 sub
 sanitize
