@@ -151,8 +151,8 @@ while ($i < ($#doms + 1) )
 				addhost($dom);
 				next;
 			}
-			if ($item =~ /^ip[46]:(.*)$/) {
-				addcidr($1, $dom);
+			if ($item =~ /^(ip[46]):(.*)$/) {
+				addcidr($2, $dom);
 				next;
 			}
 			if ($item =~ /^include:(.*)$/) {
@@ -213,8 +213,6 @@ for my $dom (@mx)
 		
 }
 $i = 0;
-# sort and unique @hosts, sure we add more, but at least it cuts down some
-# excessive fork()'s
 while ($i < ($#hosts + 1))
 {
 	my $dom = $hosts[$i++];
@@ -241,7 +239,7 @@ while ($i < ($#hosts + 1))
 	}
 }
 
-for my $c (keys %cidrs)
+for my $c (sort keys %cidrs)
 {
 	my $str = "";
 	my $olds = "";
