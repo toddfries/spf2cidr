@@ -223,7 +223,8 @@ while ($i < ($#hosts + 1))
 			addcidr($1, $dom);
 			next;
 		}
-		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/) {
+		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/
+		    || $line =~ /SERVFAIL/) {
 			next;
 		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
