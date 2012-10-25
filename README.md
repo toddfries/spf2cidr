@@ -3,6 +3,7 @@ WEiRDJE on mindcry/#openbsd irc.
 
 One might add something similar to this in /etc/daily.local on OpenBSD:
 
+<pre>
 cd /etc/mail && {
         ./spf2cidr > .whitelist.spf2cidr
         {
@@ -17,3 +18,8 @@ cd /etc/mail && {
                 }
         fi
 }
+</pre>
+
+I always am interested in feedback and especially suggestions or tweaks in
+the form of 'diff -u'.  Please contact todd@fries.net if you have any of the
+above.

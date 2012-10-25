@@ -34,7 +34,13 @@ if (defined($ARGV[0])) {
 }
 
 my $domfile = "/etc/mail/spf-domains";
-if (-f $domfile ) {
+
+if (defined($ARGV[0])) {
+	for my $dom (@ARGV) {
+		adddom($dom);
+	}
+} else {
+    if (-f $domfile) {
 	open(DOMS,$domfile);
 	while(<DOMS>) {
 		s/#.*$//;
@@ -46,7 +52,7 @@ if (-f $domfile ) {
 		}
 	}
 	close(DOMS);
-} else {
+    } else {
 	@doms =
 	("google.com", "gmail.com", "youtube.com", "picasa.com",
 	"sketchup.com", "blogger.com",
@@ -77,6 +83,7 @@ if (-f $domfile ) {
 	"ameritrade.com", "securityfocus.com", "collab.net", "sentex.ca",
 	"comcast.net", "cox.net"
 	);
+   }
 }
 
 
@@ -88,7 +95,7 @@ while ($i < ($#doms + 1) )
 	if ($verbose > 0) {
 		printf("#\n#     %s\n#\n",$dom);
 	}
-	for my $line (cmdresult("host -t TXT $dom.")) {
+	for my $line (hostinfo("-t txt $dom.")) {
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
@@ -142,8 +149,8 @@ while ($i < ($#doms + 1) )
 				addhost($dom);
 				next;
 			}
-			if ($item =~ /^ip[46]:(.*)$/) {
-				addcidr($1, $dom);
+			if ($item =~ /^(ip[46]):(.*)$/) {
+				addcidr($2, $dom);
 				next;
 			}
 			if ($item =~ /^include:(.*)$/) {
@@ -179,12 +186,11 @@ while ($i < ($#doms + 1) )
 			    $item, $dom;
 		}
 	}
-	close(HOST);
 }
 
 for my $dom (@mx)
 {
-	for my $line (cmdresult("host -t mx $dom.")) {
+	for my $line (hostinfo("-t mx $dom.")) {
 		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
 			my $host = $1;
 			addhost($host);
@@ -200,21 +206,19 @@ for my $dom (@mx)
 		printf "# Unmatched 'host -t mx %s' output line: '%s'\n",
 		    $dom, $line;
 	}
-	close(HOST);
 		
 }
 $i = 0;
-# sort and unique @hosts, sure we add more, but at least it cuts down some
-# excessive fork()'s
 while ($i < ($#hosts + 1))
 {
 	my $dom = $hosts[$i++];
-	for my $line (cmdresult("host $dom.")) {
+	for my $line (hostinfo("$dom.")) {
 		if ($line =~ m/has address (.*)$/) {
 			addcidr($1, $dom);
 			next;
 		}
-		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/) {
+		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/
+		    || $line =~ /SERVFAIL/) {
 			next;
 		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
@@ -228,10 +232,9 @@ while ($i < ($#hosts + 1))
 		printf "# Unmatched 'host %s' output line: '%s'\n",
 		    $dom, $line;
 	}
-	close(HOST);
 }
 
-for my $c (keys %cidrs)
+for my $c (sort keys %cidrs)
 {
 	my $str = "";
 	my $olds = "";
@@ -267,6 +270,24 @@ help
 }
 
 sub
+hostinfo
+{
+	my ($arg) = @_;
+	my @result;
+	open(HOST,"host $arg|");
+	my $line;
+	while (<HOST>) {
+		chomp($line = $_);
+		$line =~ s/\\(0[0-9][0-9]|")/ /g;
+		push @result,$line;
+	}
+	close(HOST);
+	return sort @result;
+}
+
+
+
+sub
 sanitize
 {
 	my ($d) = @_;
@@ -275,22 +296,6 @@ sanitize
 	$d = lc($d);
 
 	return $d;
-}
-
-sub
-cmdresult
-{
-	my ($cmd) = @_;
-	my @result;
-	open(CMD,"$cmd|");
-	my $line;
-	while (<CMD>) {
-		chomp($line = $_);
-		$line =~ s/\\(0[0-9][0-9]|")/ /g;
-		push @result,$line;
-	}
-	close(CMD);
-	return @result;
 }
 
 sub
