@@ -116,6 +116,7 @@ while ($i < ($#doms + 1) )
 			    $line, $dom;
 			next;
 		}
+		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
 		for my $item (split(/ +/,$line))
 		{
 			my $olditem = $item;
@@ -149,7 +150,7 @@ while ($i < ($#doms + 1) )
 				addhost($dom);
 				next;
 			}
-			if ($item =~ /^(ip[46]):(.*)$/) {
+			if ($item =~ /^(ip[46]):[ \t]*(.*)$/) {
 				addcidr($2, $dom);
 				next;
 			}
