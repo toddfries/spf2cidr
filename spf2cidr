@@ -108,6 +108,12 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /v=DKIM1/) {
 			next;
 		}
+		if ($line =~ /^android-mdm-enroll=/) {
+			next;
+		}
+		if ($line =~ /==$/) {
+			next;
+		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
 		$line =~ s/" "/ /g;
 		$line =~ s/includ e:/include:/g;
@@ -280,6 +286,9 @@ hostinfo
 	while (<HOST>) {
 		chomp($line = $_);
 		$line =~ s/\\(0[0-9][0-9]|")/ /g;
+		if ($line =~ /^;; Truncated, retrying in TCP mode.$/) {
+			next;
+		}
 		push @result,$line;
 	}
 	close(HOST);
