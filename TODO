@@ -1,4 +1,3 @@
-o make domains exist in an external conf file
 o add -t <table> to update a file and subsequently a pf table
 o add -n to not update a pf table (testing mode!)
 o make perl query dns directly instead of forking 'host...|'
@@ -6,7 +5,7 @@ o makefiles for proper installation and potential package management integration
 o keep a persistent database of mappings, some hosts change so frequently I
   wonder if they are doing some round-robin dns and therefore a host might
   keep a cidr entry active if it was found to resolve to a given ip in the
-  last X days (365 by default??)
+  last X days (30 by default??)
   Examples:
 
   -                           68.232.129.11       # mx1.dhl.iphmx.com
