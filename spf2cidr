@@ -17,6 +17,8 @@
 use strict;
 use warnings;
 
+use OpenBSD::Getopt;
+
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
 
 my $verbose = 0;
@@ -24,14 +26,29 @@ our @doms;
 our %cidrs;
 our @mx;
 our @hosts;
-
-
-if (defined($ARGV[0])) {
-	if ($ARGV[0] =~ /^-v$/) {
-		shift @ARGV;
-		$verbose++;
+our $nlwhitelist = 0;
+our ($opt_v, $opt_o);
+getopts('vo:',
+	{
+		'v' => sub { $verbose++; },
+		'o' => sub {
+			my ($info) = @_; 
+			if ($info =~ "^whitelist=") {
+				$info =~ s/^whitelist=//;
+				if ($info eq "nl") {
+					$nlwhitelist = 1;
+				} else {
+					printf "Unsupported whitelist: %s\n",
+					    $info;
+					exit(1);
+				}
+			} else {
+				printf "# Unsupported option: %s\n",$info;
+				exit(1);
+			}
+		}
 	}
-}
+);
 
 my $domfile = "/etc/mail/spf-domains";
 
@@ -53,37 +70,9 @@ if (defined($ARGV[0])) {
 	}
 	close(DOMS);
     } else {
-	@doms =
-	("google.com", "gmail.com", "youtube.com", "picasa.com",
-	"sketchup.com", "blogger.com",
-	"hotmail.com", "msn.com", "microsoft.com", "live.com",
-	"facebook.com", "twitter.com", "ebay.com",
-	"about.com", "linkedin.com", "nimbuzz.com",
-	"aol.com", "freebsd.org", "yahoo.com", "flickr.com",
-	"godaddy.com", "arpnetworks.com", "abc.com", "msnbc.com", "apple.com",
-	"netcraft.com", "emailhosting.com", "runbox.com", "fusemail.com",
-	"rr.com", "biz.rr.com", "123greetings.com", "263xmail.com",
-	"krypt.com",
-	"acs-inc.com", "postini.com", "addisonsearch.com",
-	"bcbsok.com", "bcbsil.com", "bcbstx.com", "bcbs.com",
-	"progressive.com", "tmo.blackberry.net", "walmart.com",
-	"samsclub.com", "snapfish.com", "linux.org", "usps.com", "ups.com",
-	"fedex.com", "dhl.com", "amazon.com", "delta.com", "orbitz.com",
-	"usairways.com", "aa.com", "spirit.com", "usatoday.com", "expedia.com",
-	"travelocity.com", "alaskaair.com", "britishairways.com",
-	"flyfrontier.com",
-	"xe.com", "paychex.com", "ingdirect.com", "boa.com", "chase.com",
-	"bankofamerica.com", "statefarm.com", "paypal.com", "hcsc.net",
-	"mls.lib.ok.us", "dropbox.com", "wunderground.com", "groupon.com",
-	"nzbindex.nl", "binsearch.info", "zendesk.com", "saddleback.com",
-	"scientificamerican.com", "startcom.org", "apache.com",
-	"wordpress.com", "github.com", "messagelabs.com", "hughes.net",
-	"bluehost.com", "nmh.org", "kijiji.com", "dell.com",
-	"teliax.com", "craigslist.org", "skynet.be", "ljbtc.com",
-	"ameritrade.com", "securityfocus.com", "collab.net", "sentex.ca",
-	"comcast.net", "cox.net"
-	);
-   }
+	print "No domain given on cmdline, no domfile, aborting\n";
+	exit(1);
+    }
 }
 
 
@@ -99,7 +88,7 @@ while ($i < ($#doms + 1) )
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
-		if ($line =~ /"google-site-verification/) {
+		if ($line =~ /"(google-site|mailru)-verification/) {
 			next;
 		}
 		if ($line =~ /"((ms|osiagentregurl)=|contact: |v=msv1)/i) {
@@ -108,10 +97,10 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /v=DKIM1/) {
 			next;
 		}
-		if ($line =~ /^android-mdm-enroll=/) {
+		if ($line =~ /"(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
-		if ($line =~ /==$/) {
+		if ($line =~ /=="$/) {
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
@@ -123,15 +112,20 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
-		for my $item (split(/ +/,$line))
+		ITEM: for my $item (split(/ +/,$line))
 		{
+			if ($olditem =~ /^-/) {
+				printf "# Skipping negation: %s (%s)\n", $item, $dom;
+				next;
+			}
 			my $olditem = $item;
 			$item =~ s/^[\+\?\~-]//;
 			if ($verbose > 0) {
 				if ($olditem eq $item) {
 					printf "# %s (%s)\n", $item, $dom;
 				} else {
-					printf "# %s -> %s (%s)\n", $olditem, $item, $dom;
+					printf "# %s -> %s (%s)\n", $olditem,
+					    $item, $dom;
 				}
 			}
 			if ($item =~ /^v=/) {
@@ -148,16 +142,53 @@ while ($i < ($#doms + 1) )
 				help($item, $dom);
 				next;
 			}
-			if ($item =~ /^a:(.*)$/) {
-				addhost($1);
+			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6')) {
+			    local *addit;
+			    if ($pre eq "a") {
+			    	*addit = \&addhost;
+			    } elsif ($pre eq "mx") {
+				*addit = \&addmx;
+			    } elsif ($pre =~ "ip[46]") {
+				*addit = \&additcidr;
+			    }
+			    if ($item =~ /^${pre}$/) {
+				addit($dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}\/([0-9]+)$/) {
+				addit($dom,'A',$1);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)$/) {
+				addit($1, undef, undef, undef, $dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/) {
+				addit($dom,'A',$1);
+				addit($dom,'AAAA',$2);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/) {
+				addit($1,'A',$2, $dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
+				addit($1,'A',$2);
+				addit($1,'AAAA',$3);
+				next ITEM;
+			    }
+			}
+			# XXX add /prefixlen support
+			if ($item =~ /^mx$/) {
+				addmx($dom);
 				next;
 			}
-			if ($item =~ /^a$/) {
-				addhost($dom);
+			if ($item =~ /^mx:([0-9]+)$/) {
+				addmx($1);
 				next;
 			}
-			if ($item =~ /^(ip[46]):[ \t]*(.*)$/) {
-				addcidr($2, $dom);
+			if ($item =~ /^mx:(.*)$/) {
+				addmx($1);
 				next;
 			}
 			if ($item =~ /^include:(.*)$/) {
@@ -168,16 +199,9 @@ while ($i < ($#doms + 1) )
 				adddom($1);
 				next;
 			}
-			if ($item =~ /^mx$/) {
-				addmx($dom);
-				next;
-			}
-			if ($item =~ /^mx:(.*)$/) {
-				addmx($1);
-				next;
-			}
 			if ($item =~ /^exists:(.*)$/) {
-				help($item, $dom);
+				# no way to handle as it requires connection
+				# time info (dns lookup based on connecting ip)
 				next;
 			}
 			if ($item =~ /^exp=/) {
@@ -195,12 +219,16 @@ while ($i < ($#doms + 1) )
 	}
 }
 
-for my $dom (@mx)
+# 'mx' hosts can only be IPv4, need 'mx6' for IPv6 due to prefixlen usage
+for my $di (@mx)
 {
+	my %dominfo = %{$di};
+	my $dom = $dominfo{'name'};
+	
 	for my $line (hostinfo("-t mx $dom.")) {
 		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
 			my $host = $1;
-			addhost($host);
+			addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
 		if ($line =~ m/(has no MX record|NXDOMAIN)/) {
@@ -218,28 +246,72 @@ for my $dom (@mx)
 $i = 0;
 while ($i < ($#hosts + 1))
 {
-	my $dom = $hosts[$i++];
+	my %dominfo = %{$hosts[$i++]};
+	my $dom = $dominfo{'name'};
+	my $af = $dominfo{'af'};
+	if (!defined($af)) {
+		$af = "";
+	}
 	for my $line (hostinfo("$dom.")) {
-		if ($line =~ m/has address (.*)$/) {
-			addcidr($1, $dom);
-			next;
-		}
 		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/
 		    || $line =~ /SERVFAIL/) {
 			next;
 		}
+		if ($line =~ m/has address (.*)$/) {
+			if ($af ne "AAAA") {
+				addcidr($dom, $1, $dominfo{'prefixlen'});
+			}
+			next;
+		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
-			addcidr($1, $dom);
+			if ($af ne "A") {
+				addcidr($dom, $1, $dominfo{'prefixlen'});
+			}
 			next;
 		}
 		if ($line =~ m/is an alias for (.*)$/) {
-			addhost($1);
+			addhost($1,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
 		printf "# Unmatched 'host %s' output line: '%s'\n",
 		    $dom, $line;
 	}
 }
+
+#
+# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
+#
+# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
+#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
+#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
+#
+######################################################################
+
+if ($nlwhitelist > 0) {
+	my $line;
+	open(DIG,"dig -t AXFR nlwhitelist.dnsbl.bit.nl \@nsauth1.bit.nl|");
+	while(<DIG>) {
+		s/\t/ /g;
+		s/  / /g;
+		if (/IN (TXT|SOA|NS)/) {
+			next;
+		}
+		if (/^;/ || /^$/) {
+			next;
+		}
+		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.[12]/) {
+			my ($ip4,$ip3,$ip2,$ip1,@rest) = split(/\./);
+			my $ip = "${ip1}.${ip2}.${ip3}.${ip4}";
+			addcidr("nl.whitelist.dnsbl.bit.nl", $ip);
+			next;
+		}
+		chomp($_);
+		printf "# Unsupported nlwhitelist line: %s\n",$_;
+	}
+	close(DIG);
+}
+		
+
 
 for my $c (sort keys %cidrs)
 {
@@ -259,21 +331,13 @@ for my $c (sort keys %cidrs)
 	printf "%40s\t# %s\n",$c,$str;
 }
 
-#
-# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
-#
-# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
-#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
-#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
-#
-######################################################################
-
 sub
 help
 {
 	my ($item,$dom) = @_;
 
-	printf "# XXX! Would like to implement '%s' from '%s', diffs welcomed!\n", $item, $dom;
+	printf "# XXX! Would like to implement '%s' from '%s', ".
+	   "diffs welcomed!\n", $item, $dom;
 }
 
 sub
@@ -309,11 +373,31 @@ sanitize
 }
 
 sub
+additcidr
+{
+	my ($c,$af,$prefixlen,$d) = @_;
+	addcidr($d,$c,$prefixlen);
+}
+
+sub
 addcidr
 {
-	my ($c,$d) = @_;
+	my ($d,$c,$prefixlen) = @_;
+	if ($verbose > 0) {
+		printf "# addcidr(%s,%s,%s)\n",$d,$c,
+		    defined($prefixlen)?$prefixlen:"undef";
+	}
 
 	$d = sanitize($d);
+	if (defined($prefixlen)) {
+		$c .= "/$prefixlen";
+		my $check;
+		chomp($check = `echo "table <test> { $c }"|pfctl -nvf -`);
+		$check =~ s/^.*{ (.*) }$/$1/;
+		if ($check ne $c) {
+			$c = $check;
+		}
+	}
 
 	my @clist;
 	if (defined($cidrs{$c})) {
@@ -345,32 +429,68 @@ adddom
 sub
 addhost
 {
-	my ($d) = @_;
+	my ($d,$af,$prefixlen) = @_;
 
 	$d = sanitize($d);
+	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
+	my $p;
 
 	if (@hosts) {
-		if (grep /^$d$/,@hosts) {
-			return;	
+		for my $h (@hosts) {
+			if (ishostequal($h, $d, $af, $prefixlen)) {
+				return;
+			}
 		}
 	}
+	%{$p} = %info;
 
-	push @hosts,$d;
+	push @hosts,$p;
 }
 
 sub
 addmx
 {
-	my ($d) = @_;
+	my ($d,$af,$prefixlen) = @_;
 
 	$d = sanitize($d);
 
+	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
+	my $p;
+
 	if (@mx) {
-		if (grep /^$d$/,@mx) {
-			return;
+		for my $m (@mx) {
+			if (ishostequal($m, $d, $af, $prefixlen)) {
+				return;
+			}
 		}
 	}
 
-	push @mx,$d;
+	%{$p} = %info;
+	push @mx,$p;
 }
 
+sub
+ishostequal
+{
+	my ($ref, $d, $af, $prefixlen) = @_;
+	my %info = %{$ref};
+
+	
+	my %i = %{$ref};
+	if ($i{'name'} ne $d) {
+		return 0;
+	}
+	if (!defined($af)) {
+		return 0;
+	}
+	if ($i{'af'} ne $af) {
+		return 0;
+	}
+	if (!defined($prefixlen)) {
+		return 0;
+	}
+	if ($i{'prefixlen'} != $prefixlen) {
+		return 0;
+	}
+	return 1;
+}

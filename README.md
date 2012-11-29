@@ -5,7 +5,7 @@ One might add something similar to this in /etc/daily.local on OpenBSD:
 
 <pre>
 cd /etc/mail && {
-        ./spf2cidr > .whitelist.spf2cidr
+        ./spf2cidr -o whitelist=nl > .whitelist.spf2cidr
         {
                 cat whitelist.top
                 grep "^#" .whitelist.spf2cidr
