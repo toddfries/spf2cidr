@@ -17,6 +17,8 @@
 use strict;
 use warnings;
 
+use OpenBSD::Getopt;
+
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
 
 my $verbose = 0;
@@ -24,14 +26,29 @@ our @doms;
 our %cidrs;
 our @mx;
 our @hosts;
-
-
-if (defined($ARGV[0])) {
-	if ($ARGV[0] =~ /^-v$/) {
-		shift @ARGV;
-		$verbose++;
+our $nlwhitelist = 0;
+our ($opt_v, $opt_o);
+getopts('vo:',
+	{
+		'v' => sub { $verbose++; },
+		'o' => sub {
+			my ($info) = @_; 
+			if ($info =~ "^whitelist=") {
+				$info =~ s/^whitelist=//;
+				if ($info eq "nl") {
+					$nlwhitelist = 1;
+				} else {
+					printf "Unsupported whitelist: %s\n",
+					    $info;
+					exit(1);
+				}
+			} else {
+				printf "# Unsupported option: %s\n",$info;
+				exit(1);
+			}
+		}
 	}
-}
+);
 
 my $domfile = "/etc/mail/spf-domains";
 
@@ -257,6 +274,38 @@ while ($i < ($#hosts + 1))
 	}
 }
 
+#
+# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
+#
+# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
+#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
+#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
+#
+######################################################################
+
+if ($nlwhitelist > 0) {
+	my $line;
+	open(DIG,"dig -t AXFR nlwhitelist.dnsbl.bit.nl \@nsauth1.bit.nl|");
+	while(<DIG>) {
+		s/\t/ /g;
+		s/  / /g;
+		if (/IN TXT/) {
+			next;
+		}
+		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.2/) {
+			my ($ip4,$ip3,$ip2,$ip1,@rest) = split(/\./);
+			my $ip = "${ip1}.${ip2}.${ip3}.${ip4}";
+			addcidr("nl.whitelist.dnsbl.bit.nl", $ip);
+			next;
+		}
+		chomp($_);
+		printf "# Unsupported nlwhitelist line: %s\n",$_;
+	}
+	close(DIG);
+}
+		
+
+
 for my $c (sort keys %cidrs)
 {
 	my $str = "";
@@ -274,15 +323,6 @@ for my $c (sort keys %cidrs)
 	}
 	printf "%40s\t# %s\n",$c,$str;
 }
-
-#
-# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
-#
-# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
-#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
-#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
-#
-######################################################################
 
 sub
 help
@@ -336,6 +376,10 @@ sub
 addcidr
 {
 	my ($d,$c,$prefixlen) = @_;
+	if ($verbose > 0) {
+		printf "# addcidr(%s,%s,%s)\n",$d,$c,
+		    defined($prefixlen)?$prefixlen:"undef";
+	}
 
 	$d = sanitize($d);
 	if (defined($prefixlen)) {
