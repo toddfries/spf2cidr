@@ -148,15 +148,34 @@ while ($i < ($#doms + 1) )
 				help($item, $dom);
 				next;
 			}
-			if ($item =~ /^a:(.*)$/) {
-				addhost($1);
-				next;
-			}
 			if ($item =~ /^a$/) {
 				addhost($dom);
 				next;
 			}
-			if ($item =~ /^(ip[46]):[ \t]*(.*)$/) {
+			if ($item =~ /^a:([^\/]+)$/) {
+				addhost($1);
+				next;
+			}
+			if ($item =~ /^a\/([0-9]+)$/) {
+				addhost($dom,'A',$1);
+				next;
+			}
+			if ($item =~ /^a:([^\/]+)\/([0-9]+)$/) {
+				addhost($1,'A',$1);
+				next;
+			}
+			if ($item =~ /^a\/([0-9]+)\/([0-9]+)$/) {
+				addhost($dom,'A',$1);
+				addhost($dom,'A',$2);
+				next;
+			}
+			if ($item =~ /^a:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
+				addhost($1,'A',$1);
+				addhost($1,'A',$2);
+				next;
+			}
+			# XXX add /prefixlen support
+			if ($item =~ /^(ip[46]):(.*)$/) {
 				addcidr($2, $dom);
 				next;
 			}
@@ -168,8 +187,13 @@ while ($i < ($#doms + 1) )
 				adddom($1);
 				next;
 			}
+			# XXX add /prefixlen support
 			if ($item =~ /^mx$/) {
 				addmx($dom);
+				next;
+			}
+			if ($item =~ /^mx:([0-9]+)$/) {
+				addmx($1);
 				next;
 			}
 			if ($item =~ /^mx:(.*)$/) {
@@ -177,7 +201,8 @@ while ($i < ($#doms + 1) )
 				next;
 			}
 			if ($item =~ /^exists:(.*)$/) {
-				help($item, $dom);
+				# no way to handle as it requires connection
+				# time info (dns lookup based on connecting ip)
 				next;
 			}
 			if ($item =~ /^exp=/) {
@@ -195,12 +220,16 @@ while ($i < ($#doms + 1) )
 	}
 }
 
-for my $dom (@mx)
+# 'mx' hosts can only be IPv4, need 'mx6' for IPv6 due to prefixlen usage
+for my $di (@mx)
 {
+	my %dominfo = %{$di};
+	my $dom = $dominfo{'name'};
+	
 	for my $line (hostinfo("-t mx $dom.")) {
 		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
 			my $host = $1;
-			addhost($host);
+			addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
 		if ($line =~ m/(has no MX record|NXDOMAIN)/) {
@@ -218,22 +247,31 @@ for my $dom (@mx)
 $i = 0;
 while ($i < ($#hosts + 1))
 {
-	my $dom = $hosts[$i++];
+	my %dominfo = %{$hosts[$i++]};
+	my $dom = $dominfo{'name'};
+	my $af = $dominfo{'af'};
+	if (!defined($af)) {
+		$af = "";
+	}
 	for my $line (hostinfo("$dom.")) {
-		if ($line =~ m/has address (.*)$/) {
-			addcidr($1, $dom);
-			next;
-		}
 		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/
 		    || $line =~ /SERVFAIL/) {
 			next;
 		}
+		if ($line =~ m/has address (.*)$/) {
+			if ($af ne "AAAA") {
+				addcidr($1, $dom);
+			}
+			next;
+		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
-			addcidr($1, $dom);
+			if ($af ne "A") {
+				addcidr($1, $dom);
+			}
 			next;
 		}
 		if ($line =~ m/is an alias for (.*)$/) {
-			addhost($1);
+			addhost($1,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
 		printf "# Unmatched 'host %s' output line: '%s'\n",
@@ -345,32 +383,68 @@ adddom
 sub
 addhost
 {
-	my ($d) = @_;
+	my ($d,$af,$prefixlen) = @_;
 
 	$d = sanitize($d);
+	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
+	my $p;
 
 	if (@hosts) {
-		if (grep /^$d$/,@hosts) {
-			return;	
+		for my $h (@hosts) {
+			if (ishostequal($h, $d, $af, $prefixlen)) {
+				return;
+			}
 		}
 	}
+	%{$p} = %info;
 
-	push @hosts,$d;
+	push @hosts,$p;
 }
 
 sub
 addmx
 {
-	my ($d) = @_;
+	my ($d,$af,$prefixlen) = @_;
 
 	$d = sanitize($d);
 
+	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
+	my $p;
+
 	if (@mx) {
-		if (grep /^$d$/,@mx) {
-			return;
+		for my $m (@mx) {
+			if (ishostequal($m, $d, $af, $prefixlen)) {
+				return;
+			}
 		}
 	}
 
-	push @mx,$d;
+	%{$p} = %info;
+	push @mx,$p;
 }
 
+sub
+ishostequal
+{
+	my ($ref, $d, $af, $prefixlen) = @_;
+	my %info = %{$ref};
+
+	
+	my %i = %{$ref};
+	if ($i{'name'} ne $d) {
+		return 0;
+	}
+	if (!defined($af)) {
+		return 0;
+	}
+	if ($i{'af'} ne $af) {
+		return 0;
+	}
+	if (!defined($prefixlen)) {
+		return 0;
+	}
+	if ($i{'prefixlen'} != $prefixlen) {
+		return 0;
+	}
+	return 1;
+}
