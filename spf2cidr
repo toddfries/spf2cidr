@@ -95,7 +95,7 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
-		for my $item (split(/ +/,$line))
+		ITEM: for my $item (split(/ +/,$line))
 		{
 			my $olditem = $item;
 			$item =~ s/^[\+\?\~-]//;
@@ -121,44 +121,41 @@ while ($i < ($#doms + 1) )
 				help($item, $dom);
 				next;
 			}
-			if ($item =~ /^a$/) {
-				addhost($dom);
-				next;
-			}
-			if ($item =~ /^a:([^\/]+)$/) {
-				addhost($1);
-				next;
-			}
-			if ($item =~ /^a\/([0-9]+)$/) {
-				addhost($dom,'A',$1);
-				next;
-			}
-			if ($item =~ /^a:([^\/]+)\/([0-9]+)$/) {
-				addhost($1,'A',$1);
-				next;
-			}
-			if ($item =~ /^a\/([0-9]+)\/([0-9]+)$/) {
-				addhost($dom,'A',$1);
-				addhost($dom,'A',$2);
-				next;
-			}
-			if ($item =~ /^a:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
-				addhost($1,'A',$1);
-				addhost($1,'A',$2);
-				next;
-			}
-			# XXX add /prefixlen support
-			if ($item =~ /^(ip[46]):(.*)$/) {
-				addcidr($2, $dom);
-				next;
-			}
-			if ($item =~ /^include:(.*)$/) {
-				adddom($1);
-				next;
-			}
-			if ($item =~ /^redirect=(.*)$/) {
-				adddom($1);
-				next;
+			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6')) {
+			    local *addit;
+			    if ($pre eq "a") {
+			    	*addit = \&addhost;
+			    } elsif ($pre eq "mx") {
+				*addit = \&addmx;
+			    } elsif ($pre =~ "ip[46]") {
+				*addit = \&additcidr;
+			    }
+			    if ($item =~ /^${pre}$/) {
+				addit($dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}\/([0-9]+)$/) {
+				addit($dom,'A',$1);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)$/) {
+				addit($1, undef, undef, undef, $dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/) {
+				addit($dom,'A',$1);
+				addit($dom,'AAAA',$2);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/) {
+				addit($1,'A',$2, $dom);
+				next ITEM;
+			    }
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
+				addit($1,'A',$2);
+				addit($1,'AAAA',$3);
+				next ITEM;
+			    }
 			}
 			# XXX add /prefixlen support
 			if ($item =~ /^mx$/) {
@@ -171,6 +168,14 @@ while ($i < ($#doms + 1) )
 			}
 			if ($item =~ /^mx:(.*)$/) {
 				addmx($1);
+				next;
+			}
+			if ($item =~ /^include:(.*)$/) {
+				adddom($1);
+				next;
+			}
+			if ($item =~ /^redirect=(.*)$/) {
+				adddom($1);
 				next;
 			}
 			if ($item =~ /^exists:(.*)$/) {
@@ -233,13 +238,13 @@ while ($i < ($#hosts + 1))
 		}
 		if ($line =~ m/has address (.*)$/) {
 			if ($af ne "AAAA") {
-				addcidr($1, $dom);
+				addcidr($dom, $1, $dominfo{'prefixlen'});
 			}
 			next;
 		}
 		if ($line =~ m/has IPv6 address (.*)$/) {
 			if ($af ne "A") {
-				addcidr($1, $dom);
+				addcidr($dom, $1, $dominfo{'prefixlen'});
 			}
 			next;
 		}
@@ -321,11 +326,27 @@ sanitize
 }
 
 sub
+additcidr
+{
+	my ($c,$af,$prefixlen,$d) = @_;
+	addcidr($d,$c,$prefixlen);
+}
+
+sub
 addcidr
 {
-	my ($c,$d) = @_;
+	my ($d,$c,$prefixlen) = @_;
 
 	$d = sanitize($d);
+	if (defined($prefixlen)) {
+		$c .= "/$prefixlen";
+		my $check;
+		chomp($check = `echo "table <test> { $c }"|pfctl -nvf -`);
+		$check =~ s/^.*{ (.*) }$/$1/;
+		if ($check ne $c) {
+			$c = $check;
+		}
+	}
 
 	my @clist;
 	if (defined($cidrs{$c})) {
