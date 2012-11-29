@@ -103,7 +103,8 @@ while ($i < ($#doms + 1) )
 				if ($olditem eq $item) {
 					printf "# %s (%s)\n", $item, $dom;
 				} else {
-					printf "# %s -> %s (%s)\n", $olditem, $item, $dom;
+					printf "# %s -> %s (%s)\n", $olditem,
+					    $item, $dom;
 				}
 			}
 			if ($item =~ /^v=/) {
@@ -283,7 +284,8 @@ help
 {
 	my ($item,$dom) = @_;
 
-	printf "# XXX! Would like to implement '%s' from '%s', diffs welcomed!\n", $item, $dom;
+	printf "# XXX! Would like to implement '%s' from '%s', ".
+	   "diffs welcomed!\n", $item, $dom;
 }
 
 sub
