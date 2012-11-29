@@ -114,6 +114,10 @@ while ($i < ($#doms + 1) )
 		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
 		ITEM: for my $item (split(/ +/,$line))
 		{
+			if ($olditem =~ /^-/) {
+				printf "# Skipping negation: %s (%s)\n", $item, $dom;
+				next;
+			}
 			my $olditem = $item;
 			$item =~ s/^[\+\?\~-]//;
 			if ($verbose > 0) {
@@ -289,10 +293,13 @@ if ($nlwhitelist > 0) {
 	while(<DIG>) {
 		s/\t/ /g;
 		s/  / /g;
-		if (/IN TXT/) {
+		if (/IN (TXT|SOA|NS)/) {
 			next;
 		}
-		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.2/) {
+		if (/^;/ || /^$/) {
+			next;
+		}
+		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.[12]/) {
 			my ($ip4,$ip3,$ip2,$ip1,@rest) = split(/\./);
 			my $ip = "${ip1}.${ip2}.${ip3}.${ip4}";
 			addcidr("nl.whitelist.dnsbl.bit.nl", $ip);
