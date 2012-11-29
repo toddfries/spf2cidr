@@ -88,19 +88,19 @@ while ($i < ($#doms + 1) )
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
-		if ($line =~ /"(google-site|mailru)-verification/) {
+		if ($line =~ /"[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
 		if ($line =~ /"((ms|osiagentregurl)=|contact: |v=msv1)/i) {
 			next;
 		}
-		if ($line =~ /v=DKIM1/) {
+		if ($line =~ /"(v=DKIM1|k=rsa)/) {
 			next;
 		}
 		if ($line =~ /"(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
-		if ($line =~ /=="$/) {
+		if ($line =~ /(==|, Inc\.)"$/) {
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
@@ -115,7 +115,10 @@ while ($i < ($#doms + 1) )
 		ITEM: for my $item (split(/ +/,$line))
 		{
 			if ($item =~ /^-/) {
-				printf "# Skipping negation: %s (%s)\n", $item, $dom;
+				# most have -all, no need to 'announce' we are skipping this
+				if ($item ne "-all") {
+					printf "# Skipping negation: %s (%s)\n", $item, $dom;
+				}
 				next;
 			}
 			my $olditem = $item;
@@ -135,11 +138,13 @@ while ($i < ($#doms + 1) )
 				next;
 			}
 			if ($item =~ /^ptr:(.*)$/) {
-				help($item,$dom);
+				# XXX can this be used in any way?
+				#help($item,$dom);
 				next;
 			}
 			if ($item =~ /^ptr$/) {
-				help($item, $dom);
+				# XXX can this be used in any way?
+				#help($item, $dom);
 				next;
 			}
 			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6')) {
@@ -152,44 +157,31 @@ while ($i < ($#doms + 1) )
 				*addit = \&additcidr;
 			    }
 			    if ($item =~ /^${pre}$/) {
-				addit($dom);
+				addit($dom, undef, undef, $dom);
 				next ITEM;
 			    }
 			    if ($item =~ /^${pre}\/([0-9]+)$/) {
-				addit($dom,'A',$1);
+				addit($dom, 'A', $1, $dom);
 				next ITEM;
 			    }
 			    if ($item =~ /^${pre}:([^\/]+)$/) {
-				addit($1, undef, undef, undef, $dom);
+				addit($1, undef, undef, $dom);
 				next ITEM;
 			    }
 			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/) {
-				addit($dom,'A',$1);
-				addit($dom,'AAAA',$2);
+				addit($dom, 'A', $1, $dom);
+				addit($dom, 'AAAA', $2, $dom);
 				next ITEM;
 			    }
 			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/) {
-				addit($1,'A',$2, $dom);
+				addit($1, 'A', $2, $dom);
 				next ITEM;
 			    }
 			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
-				addit($1,'A',$2);
-				addit($1,'AAAA',$3);
+				addit($1, 'A', $2);
+				addit($1, 'AAAA', $3);
 				next ITEM;
 			    }
-			}
-			# XXX add /prefixlen support
-			if ($item =~ /^mx$/) {
-				addmx($dom);
-				next;
-			}
-			if ($item =~ /^mx:([0-9]+)$/) {
-				addmx($1);
-				next;
-			}
-			if ($item =~ /^mx:(.*)$/) {
-				addmx($1);
-				next;
 			}
 			if ($item =~ /^include:(.*)$/) {
 				adddom($1);
@@ -302,7 +294,7 @@ if ($nlwhitelist > 0) {
 		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.[12]/) {
 			my ($ip4,$ip3,$ip2,$ip1,@rest) = split(/\./);
 			my $ip = "${ip1}.${ip2}.${ip3}.${ip4}";
-			addcidr("nl.whitelist.dnsbl.bit.nl", $ip);
+			addcidr("nlwhitelist.dnsbl.bit.nl", $ip);
 			next;
 		}
 		chomp($_);
@@ -365,6 +357,9 @@ sub
 sanitize
 {
 	my ($d) = @_;
+	if (!defined($d)) {
+		return undef;
+	}
 
 	$d =~ s/\.$//;
 	$d = lc($d);
@@ -389,6 +384,9 @@ addcidr
 	}
 
 	$d = sanitize($d);
+	if (!defined($d)) {
+		$d = "<undef>";
+	}
 	if (defined($prefixlen)) {
 		$c .= "/$prefixlen";
 		my $check;
