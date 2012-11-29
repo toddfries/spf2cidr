@@ -71,7 +71,7 @@ while ($i < ($#doms + 1) )
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
-		if ($line =~ /"google-site-verification/) {
+		if ($line =~ /"(google-site|mailru)-verification/) {
 			next;
 		}
 		if ($line =~ /"((ms|osiagentregurl)=|contact: |v=msv1)/i) {
@@ -80,10 +80,10 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /v=DKIM1/) {
 			next;
 		}
-		if ($line =~ /^android-mdm-enroll=/) {
+		if ($line =~ /"(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
-		if ($line =~ /==$/) {
+		if ($line =~ /=="$/) {
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
