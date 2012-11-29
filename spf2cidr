@@ -114,7 +114,7 @@ while ($i < ($#doms + 1) )
 		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
 		ITEM: for my $item (split(/ +/,$line))
 		{
-			if ($olditem =~ /^-/) {
+			if ($item =~ /^-/) {
 				printf "# Skipping negation: %s (%s)\n", $item, $dom;
 				next;
 			}
