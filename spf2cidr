@@ -88,6 +88,7 @@ while ($i < ($#doms + 1) )
 		printf("#\n#     %s\n#\n",$dom);
 	}
 	for my $line (hostinfo("-t txt $dom.")) {
+		$line =~ s/" /"/g;
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
@@ -159,56 +160,56 @@ while ($i < ($#doms + 1) )
 			    	*addit = \&addhost;
 			    } elsif ($pre eq "mx") {
 				*addit = \&addmx;
-			    } elsif ($pre =~ "ip[46]") {
+			    } elsif ($pre =~ m/ip[46]/) {
 				*addit = \&additcidr;
 			    }
-			    if ($item =~ /^${pre}$/) {
+			    if ($item =~ /^${pre}$/i) {
 				addit($dom, undef, undef, $dom);
 				next ITEM;
 			    }
-			    if ($item =~ /^${pre}\/([0-9]+)$/) {
+			    if ($item =~ /^${pre}\/([0-9]+)$/i) {
 				addit($dom, 'A', $1, $dom);
 				next ITEM;
 			    }
-			    if ($item =~ /^${pre}:([^\/]+)$/) {
+			    if ($item =~ /^${pre}:([^\/]+)$/i) {
 				addit($1, undef, undef, $dom);
 				next ITEM;
 			    }
-			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/) {
+			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/i) {
 				addit($dom, 'A', $1, $dom);
 				addit($dom, 'AAAA', $2, $dom);
 				next ITEM;
 			    }
-			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/) {
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/i) {
 				addit($1, 'A', $2, $dom);
 				next ITEM;
 			    }
-			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/) {
+			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/i) {
 				addit($1, 'A', $2);
 				addit($1, 'AAAA', $3);
 				next ITEM;
 			    }
 			}
-			if ($item =~ /^include:(.*)$/) {
+			if ($item =~ /^include:(.*)$/i) {
 				adddom($1);
 				next;
 			}
-			if ($item =~ /^redirect=(.*)$/) {
+			if ($item =~ /^redirect=(.*)$/i) {
 				adddom($1);
 				next;
 			}
-			if ($item =~ /^exists:(.*)$/) {
+			if ($item =~ /^exists:(.*)$/i) {
 				# no way to handle as it requires connection
 				# time info (dns lookup based on connecting ip)
 				next;
 			}
-			if ($item =~ /^exp=/) {
+			if ($item =~ /^exp=/i) {
 				# if someday spamd.conf is generated, this
 				# could be used to feed the error message there
 				# maybe ..
 				next;
 			}
-			if ($item =~ /all/) {
+			if ($item =~ /all/i) {
 				next;
 			}
 			printf "# Unhandled item '%s' from dom '%s'\n",
