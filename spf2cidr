@@ -107,7 +107,7 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
-		if ($line =~ /(==|, Inc\.)"$/) {
+		if ($line =~ /(==|, Inc\.)$/) {
 			next;
 		}
 		if ($line =~ /o=\~/) {
@@ -358,7 +358,9 @@ hostinfo
 		if ($verbose > 1) {
 			printf "%s: %s\n", $arg, $line;
 		}
-		$line =~ s/[\\]+(0[0-9][0-9]|")/ /g;
+		$line =~ s/[\\]+0[0-9][0-9]/ /g;
+		$line =~ s/[\\]+"//g;
+		$line =~ s/  / /g;
 		if ($line =~ /^;; Truncated, retrying in TCP mode.$/) {
 			next;
 		}
