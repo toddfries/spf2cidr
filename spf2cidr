@@ -88,20 +88,23 @@ while ($i < ($#doms + 1) )
 		printf("#\n#     %s\n#\n",$dom);
 	}
 	for my $line (hostinfo("-t txt $dom.")) {
-		$line =~ s/" /"/g;
 		if (!($line =~ /descriptive text/)) {
 			next;
 		}
-		if ($line =~ /"[a-z][a-z0-9-]+-verification/i) {
+		$line =~ s/^[^"]*"(.*)"$/$1/;
+		$line =~ s/" "/ /g;
+		$line =~ s/" /"/g;
+		$line =~ s/includ e:/include:/g;
+		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
-		if ($line =~ /"((ms|osiagentregurl)=|contact: |v=msv1)/i) {
+		if ($line =~ /((ms|osiagentregurl)=|contact: |v=msv1)/i) {
 			next;
 		}
-		if ($line =~ /"(v=DKIM1|k=rsa)/) {
+		if ($line =~ /(v=DKIM1|k=rsa)/) {
 			next;
 		}
-		if ($line =~ /"(android-mdm-enroll=|IPROTA_)/) {
+		if ($line =~ /(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
 		if ($line =~ /(==|, Inc\.)"$/) {
@@ -110,9 +113,6 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /o=\~/) {
 			next;
 		}
-		$line =~ s/^[^"]*"(.*)"$/$1/;
-		$line =~ s/" "/ /g;
-		$line =~ s/includ e:/include:/g;
 		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
 			printf "# Non SPF TXT record '%s' for '%s'\n",
 			    $line, $dom;
