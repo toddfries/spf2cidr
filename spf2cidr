@@ -230,7 +230,7 @@ for my $di (@mx)
 			}
 			next;
 		}
-		printf "# Unmatched 'host -t mx %s' output line: '%s'\n",
+		printf "# Unmatched 'hostinfo(-t mx %s.') output line: '%s'\n",
 		    $dom, $line;
 	}
 		
@@ -337,11 +337,15 @@ hostinfo
 {
 	my ($arg) = @_;
 	my @result;
+	# XXX replace with "dig +short $arg|"
 	open(HOST,"host $arg|");
 	my $line;
 	while (<HOST>) {
 		chomp($line = $_);
-		$line =~ s/\\(0[0-9][0-9]|")/ /g;
+		if ($verbose > 1) {
+			printf "%s: %s\n", $arg, $line;
+		}
+		$line =~ s/[\\]+(0[0-9][0-9]|")/ /g;
 		if ($line =~ /^;; Truncated, retrying in TCP mode.$/) {
 			next;
 		}
