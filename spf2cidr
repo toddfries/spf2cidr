@@ -92,9 +92,8 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
-		$line =~ s/" "/ /g;
+		$line =~ s/" "//g;
 		$line =~ s/" /"/g;
-		$line =~ s/includ e:/include:/g;
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
