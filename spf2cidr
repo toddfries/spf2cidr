@@ -92,6 +92,7 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		$line =~ s/^[^"]*"(.*)"$/$1/;
+		$line =~ s/" "ip([46]):/ ip$1:/g;
 		$line =~ s/" "//g;
 		$line =~ s/" /"/g;
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
