@@ -98,7 +98,7 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
-		if ($line =~ /((ms|osiagentregurl)=|contact: |v=msv1)/i) {
+		if ($line =~ /((ms|osiagentregurl)=|contact:|v=msv1)/i) {
 			next;
 		}
 		if ($line =~ /(v=DKIM1|k=rsa)/) {
