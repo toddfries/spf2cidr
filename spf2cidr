@@ -28,18 +28,16 @@ our @doms;
 our %cidrs;
 our @mx;
 our @hosts;
-our $nlwhitelist = 0;
-our ($opt_v, $opt_o);
-getopts('vo:',
+#our ($opt_v, $opt_o, $opt_r);
+our $res;
+getopts('vo:r:',
 	{
 		'v' => sub { $verbose++; },
 		'o' => sub {
 			my ($info) = @_; 
 			if ($info =~ "^whitelist=") {
 				$info =~ s/^whitelist=//;
-				if ($info eq "nl") {
-					$nlwhitelist = 1;
-				} else {
+				if (0) {
 					printf "Unsupported whitelist: %s\n",
 					    $info;
 					exit(1);
@@ -48,9 +46,33 @@ getopts('vo:',
 				printf "# Unsupported option: %s\n",$info;
 				exit(1);
 			}
-		}
+		},
+		'r' => sub {
+			my ($nameserver) = @_;
+			if (!defined($nameserver)) {
+				return;
+			}
+
+			$res = Net::DNS::Resolver->new(
+				nameservers => [$nameserver],
+				recurse => 1,
+				debug => 0,
+				persistent_udp => 1,
+				persistent_tcp => 1,
+			);
+		},
 	}
 );
+
+if (!defined($res)) {
+	$res = Net::DNS::Resolver->new(
+		persistent_udp => 1,
+		persistent_tcp => 1,
+	);
+}
+if (grep { /:/ } $res->nameservers()) {
+	$res->prefer_v6(1);
+}
 
 my $domfile = "/etc/mail/spf-domains";
 
@@ -79,8 +101,6 @@ if (defined($ARGV[0])) {
 	exit(1);
     }
 }
-
-our $res = Net::DNS::Resolver->new;
 
 my $i = 0;
 while ($i < ($#doms + 1) )
@@ -228,6 +248,7 @@ for my $di (@mx)
 	my $dom = $dominfo{'name'};
 	
 	for my $host (query_mx($dom)) {
+		print "# query_mx($dom) returned $host\n";
 		addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
 	}
 		
@@ -241,8 +262,19 @@ while ($i < ($#hosts + 1))
 	if (!defined($af)) {
 		$af = "";
 	}
+	print "# host $dom\n";
 	for my $r (query_addrs($dom)) {
-		if ($r->type =~ /^A/) {
+		if ($r->type =~ /^A$/) {
+			if (!defined($dominfo{'prefixlen'})) {
+				$dominfo{'prefixlen'} = 32;
+			}
+			addcidr($dom, $r->address, $dominfo{'prefixlen'});
+			next;
+		}
+		if ($r->type =~ /^AAAA$/) {
+			if (!defined($dominfo{'prefixlen'})) {
+				$dominfo{'prefixlen'} = 128;
+			}
 			addcidr($dom, $r->address, $dominfo{'prefixlen'});
 			next;
 		}
@@ -253,44 +285,8 @@ while ($i < ($#hosts + 1))
 		printf "# Unhandled record type: %s for %s\n", $r->type, $dom;
 	}
 }
-
-#
-# NLWhilelist, see http://noc.bit.nl/dnsbl/nlwhitelist for more info
-#
-# dig -t AXFR nlwhitelist.dnsbl.bit.nl @nsauth1.bit.nl | ..
-#	awk -F. '/600 IN A/ { if ( $5 == "nlwhitelist" ) ..
-#		{ print $4"."$3"."$2"."$1 } }' >> ${WHITELIST}.new
-#
-######################################################################
-
-if ($nlwhitelist > 0) {
-	my $line;
-	if (!open(DIG,"dig -t AXFR nlwhitelist.dnsbl.bit.nl \@nsauth1.bit.nl|")) {
-		printf STDERR "dig failed for nlwhitelist\n";
-	} else {
-	while(<DIG>) {
-		s/\t/ /g;
-		s/  / /g;
-		if (/IN (TXT|SOA|NS)/) {
-			next;
-		}
-		if (/^;/ || /^$/) {
-			next;
-		}
-		if (/nlwhitelist.dnsbl.bit.nl. 600 IN A 127.0.0.[12]/) {
-			my ($ip4,$ip3,$ip2,$ip1,@rest) = split(/\./);
-			my $ip = "${ip1}.${ip2}.${ip3}.${ip4}";
-			addcidr("nlwhitelist.dnsbl.bit.nl", $ip);
-			next;
-		}
-		chomp($_);
-		printf "# Unsupported nlwhitelist line: %s\n",$_;
-	}
-	close(DIG);
-	}
-}
-		
-
+my %dominfo = %{$hosts[$#hosts]};
+print "# i=$i hostcount=".$#hosts." last host=".$dominfo{'name'}."\n";
 
 for my $c (sort keys %cidrs)
 {
@@ -351,9 +347,16 @@ addcidr
 
 	$d = sanitize($d);
 	if (!defined($d)) {
-		$d = "<undef>";
+		return;
 	}
-	if (defined($prefixlen)) {
+	if (!defined($prefixlen)) {
+		if ($d =~ /:/) {
+			$prefixlen=128;
+		} else {
+			$prefixlen=32;
+		}
+		$c .= "/$prefixlen";
+	} else {
 		$c .= "/$prefixlen";
 		my $check;
 		chomp($check = `echo "table <test> { $c }"|pfctl -nvf -`);
@@ -399,6 +402,11 @@ addhost
 	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
 	my $p;
 
+	if ($verbose > 0) {
+		printf "# addhost(%s,%s,%s)\n", $d, $af ? $af : "<undef>",
+		    $prefixlen ? $prefixlen : "<undef>";
+	}
+
 	if (@hosts) {
 		for my $h (@hosts) {
 			if (ishostequal($h, $d, $af, $prefixlen)) {
@@ -407,6 +415,7 @@ addhost
 		}
 	}
 	%{$p} = %info;
+	printf "# addhost(%s,...): adding to \@hosts\n",$d;
 
 	push @hosts,$p;
 }
@@ -444,17 +453,15 @@ ishostequal
 	if ($i{'name'} ne $d) {
 		return 0;
 	}
-	if (!defined($af)) {
-		return 0;
+	if (defined($af) && defined($i{'af'})) {
+		if ($i{'af'} ne $af) {
+			return 0;
+		}
 	}
-	if ($i{'af'} ne $af) {
-		return 0;
-	}
-	if (!defined($prefixlen)) {
-		return 0;
-	}
-	if ($i{'prefixlen'} != $prefixlen) {
-		return 0;
+	if (defined($prefixlen) && defined($i{'prefixlen'})) {
+		if ($i{'prefixlen'} != $prefixlen) {
+			return 0;
+		}
 	}
 	return 1;
 }
@@ -464,21 +471,21 @@ query_txt
 {
 	my ($dom) = @_;
 
-	my $reply = $res->query($dom, "TXT");
+	my $reply = $res->send($dom, "TXT");
 	if (! $reply) {
-		print STDERR "query_txt($dom): TXT Query failed\n";
+		print "# query_txt($dom): TXT Query failed\n";
 		return ();
 	}
 	my @lines;
 	for my $r ($reply->answer) {
-		print STDERR "query_txt($dom): ".ref($r)."\n";
+		print "# query_txt($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::TXT") {
 			foreach my $txt ($r->txtdata) {
-				print STDERR "query_txt($dom):  - ".$txt."\n";
+				print "# query_txt($dom):  - ".$txt."\n";
 				push @lines,$txt;
 			}
 		} else {
-			print STDERR "query_txt($dom): unhandled\n";
+			print "# query_txt($dom): unhandled\n";
 		}
 	}
 	return @lines;
@@ -491,19 +498,20 @@ query_mx
 
 	my @lines = mx($res, $dom);
 	if (! @lines) {
-		print STDERR "query_mx($dom): MX Query failed\n";
+		print "# query_mx($dom): MX Query failed\n";
 		return ();
 	}
 	my @hosts;
 	for my $r (@lines) {
-		print STDERR "query_mx($dom): ".ref($r)."\n";
+		print "# query_mx($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::MX") {
-			print STDERR "$dom:  - ".$r->exchange."\n";
+			print "# query_mx($dom):  - ".$r->exchange."\n";
 			push @hosts,$r->exchange;
 		} else {
-			print STDERR "query_mx($dom): unhandled\n";
+			print "# query_mx($dom): unhandled\n";
 		}
 	}
+	print "# query_mx($dom): returning @hosts\n";
 	return @hosts;
 }
 
@@ -512,23 +520,28 @@ query_addrs
 {
 	my ($dom) = @_;
 
-	my $reply = $res->search($dom);
+	print "# query_addrs($dom): start\n";
+	my @lines = ();
+
+	foreach my $af (('A','AAAA','CNAME')) {
+	my $reply = $res->send($dom, $af);
 	if (! $reply) {
-		print STDERR "query_addrs($dom): search failed\n";
-		return ();
+		print "# query_addrs($dom,$af): search failed\n";
+		next;
 	}
-	my @lines;
 	for my $r ($reply->answer) {
-		print STDERR "query_mx($dom): ".ref($r)." type = ".$r->type."\n";
+		print "# query_addrs($dom,$af): ".ref($r)." type = ".$r->type."\n";
 		if ($r->type eq "A" || $r->type eq "AAAA") {
-			print STDERR "query_addrs($dom):  - ".$r->address."\n";
+			print "# query_addrs($dom,$af):  - ".$r->address."\n";
 			push @lines,$r;
 		} elsif ($r->type eq "CNAME") {
-			print STDERR "query_addrs($dom):  - ".$r->cname."\n";
+			print "# query_addrs($dom,$af):  - ".$r->cname."\n";
 			push @lines,$r;
 		} else {
-			print STDERR "query_addrs($dom): unhandled\n";
+			print "# query_addrs($dom,$af): unhandled\n";
 		}
 	}
+	}
+	print "# query_addrs($dom): returning @lines\n";
 	return @lines;
 }
