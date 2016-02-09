@@ -178,7 +178,8 @@ while ($i < ($#doms + 1) )
 				#help($item, $dom);
 				next;
 			}
-			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6')) {
+			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6',
+			    '\+ip4', '\+ip6')) {
 			    local *addit;
 			    if ($pre eq "a") {
 			    	*addit = \&addhost;
@@ -286,8 +287,6 @@ while ($i < ($#hosts + 1))
 		printf "# Unhandled record type: %s for %s\n", $r->type, $dom;
 	}
 }
-my %dominfo = %{$hosts[$#hosts]};
-print "# i=$i hostcount=".$#hosts." last host=".$dominfo{'name'}."\n";
 
 for my $c (sort keys %cidrs)
 {
