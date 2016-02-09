@@ -118,6 +118,7 @@ while ($i < ($#doms + 1) )
 		#$line =~ s/" "(a|ip[46]):/ $1:/g;
 		#$line =~ s/" "//g;
 		#$line =~ s/" /"/g;
+		$line =~ s/^\s+//;
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
@@ -480,10 +481,12 @@ query_txt
 	for my $r ($reply->answer) {
 		print "# query_txt($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::TXT") {
+			my $line = "";
 			foreach my $txt ($r->txtdata) {
 				print "# query_txt($dom):  - ".$txt."\n";
-				push @lines,$txt;
+				$line .= $txt;
 			}
+			push @lines,$line;
 		} else {
 			print "# query_txt($dom): unhandled\n";
 		}
