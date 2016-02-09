@@ -17,6 +17,8 @@
 use strict;
 use warnings;
 
+use Net::DNS;
+
 use OpenBSD::Getopt;
 
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
@@ -78,6 +80,7 @@ if (defined($ARGV[0])) {
     }
 }
 
+our $res = Net::DNS::Resolver->new;
 
 my $i = 0;
 while ($i < ($#doms + 1) )
@@ -87,14 +90,14 @@ while ($i < ($#doms + 1) )
 	if ($verbose > 0) {
 		printf("#\n#     %s\n#\n",$dom);
 	}
-	for my $line (hostinfo("-t txt $dom.")) {
-		if (!($line =~ /descriptive text/)) {
-			next;
-		}
-		$line =~ s/^[^"]*"(.*)"$/$1/;
-		$line =~ s/" "(a|ip[46]):/ $1:/g;
-		$line =~ s/" "//g;
-		$line =~ s/" /"/g;
+	for my $line (query_txt($dom)) {
+		#if (!($line =~ /descriptive text/)) {
+		#	next;
+		#}
+		#$line =~ s/^[^"]*"(.*)"$/$1/;
+		#$line =~ s/" "(a|ip[46]):/ $1:/g;
+		#$line =~ s/" "//g;
+		#$line =~ s/" /"/g;
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
 			next;
 		}
@@ -224,21 +227,8 @@ for my $di (@mx)
 	my %dominfo = %{$di};
 	my $dom = $dominfo{'name'};
 	
-	for my $line (hostinfo("-t mx $dom.")) {
-		if ($line =~ m/mail is handled by [0-9]+ (.*)\.$/) {
-			my $host = $1;
-			addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
-			next;
-		}
-		if ($line =~ m/(has no MX record|NXDOMAIN)/) {
-			if ($verbose > 0) {
-				printf "# human error: 'host -t mx %s' -> ".
-				    "'%s'\n", $dom, $line;
-			}
-			next;
-		}
-		printf "# Unmatched 'hostinfo(-t mx %s.') output line: '%s'\n",
-		    $dom, $line;
+	for my $host (query_mx($dom)) {
+		addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
 	}
 		
 }
@@ -251,29 +241,16 @@ while ($i < ($#hosts + 1))
 	if (!defined($af)) {
 		$af = "";
 	}
-	for my $line (hostinfo("$dom.")) {
-		if ($line =~ m/mail is handled by/ || $line =~ m/NXDOMAIN/
-		    || $line =~ /SERVFAIL/) {
+	for my $r (query_addrs($dom)) {
+		if ($r->type =~ /^A/) {
+			addcidr($dom, $r->address, $dominfo{'prefixlen'});
 			next;
 		}
-		if ($line =~ m/has address (.*)$/) {
-			if ($af ne "AAAA") {
-				addcidr($dom, $1, $dominfo{'prefixlen'});
-			}
+		if ($r->type eq "CNAME") {
+			addhost($r->cname,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
-		if ($line =~ m/has IPv6 address (.*)$/) {
-			if ($af ne "A") {
-				addcidr($dom, $1, $dominfo{'prefixlen'});
-			}
-			next;
-		}
-		if ($line =~ m/is an alias for (.*)$/) {
-			addhost($1,$dominfo{'af'},$dominfo{'prefixlen'});
-			next;
-		}
-		printf "# Unmatched 'host %s' output line: '%s'\n",
-		    $dom, $line;
+		printf "# Unhandled record type: %s for %s\n", $r->type, $dom;
 	}
 }
 
@@ -341,36 +318,6 @@ help
 	printf "# XXX! Would like to implement '%s' from '%s', ".
 	   "diffs welcomed!\n", $item, $dom;
 }
-
-sub
-hostinfo
-{
-	my ($arg) = @_;
-	my @result;
-	# XXX replace with "dig +short $arg|"
-	if (!open(HOST,"host $arg|")) {
-		printf STDERR "Failed to open pipe to read output of: 'host %s'\n",$arg;
-		return ();
-	}
-	my $line;
-	while (<HOST>) {
-		chomp($line = $_);
-		if ($verbose > 1) {
-			printf "%s: %s\n", $arg, $line;
-		}
-		$line =~ s/[\\]+0[0-9][0-9]/ /g;
-		$line =~ s/[\\]+"//g;
-		$line =~ s/  / /g;
-		if ($line =~ /^;; Truncated, retrying in TCP mode.$/) {
-			next;
-		}
-		push @result,$line;
-	}
-	close(HOST);
-	return sort @result;
-}
-
-
 
 sub
 sanitize
@@ -510,4 +457,78 @@ ishostequal
 		return 0;
 	}
 	return 1;
+}
+
+sub
+query_txt
+{
+	my ($dom) = @_;
+
+	my $reply = $res->query($dom, "TXT");
+	if (! $reply) {
+		print STDERR "query_txt($dom): TXT Query failed\n";
+		return ();
+	}
+	my @lines;
+	for my $r ($reply->answer) {
+		print STDERR "query_txt($dom): ".ref($r)."\n";
+		if (ref($r) eq "Net::DNS::RR::TXT") {
+			foreach my $txt ($r->txtdata) {
+				print STDERR "query_txt($dom):  - ".$txt."\n";
+				push @lines,$txt;
+			}
+		} else {
+			print STDERR "query_txt($dom): unhandled\n";
+		}
+	}
+	return @lines;
+}
+
+sub
+query_mx
+{
+	my ($dom) = @_;
+
+	my @lines = mx($res, $dom);
+	if (! @lines) {
+		print STDERR "query_mx($dom): MX Query failed\n";
+		return ();
+	}
+	my @hosts;
+	for my $r (@lines) {
+		print STDERR "query_mx($dom): ".ref($r)."\n";
+		if (ref($r) eq "Net::DNS::RR::MX") {
+			print STDERR "$dom:  - ".$r->exchange."\n";
+			push @hosts,$r->exchange;
+		} else {
+			print STDERR "query_mx($dom): unhandled\n";
+		}
+	}
+	return @hosts;
+}
+
+sub
+query_addrs
+{
+	my ($dom) = @_;
+
+	my $reply = $res->search($dom);
+	if (! $reply) {
+		print STDERR "query_addrs($dom): search failed\n";
+		return ();
+	}
+	my @lines;
+	for my $r ($reply->answer) {
+		print STDERR "query_mx($dom): ".ref($r)." type = ".$r->type."\n";
+		if ($r->type eq "A" || $r->type eq "AAAA") {
+			print STDERR "query_addrs($dom):  - ".$r->address."\n";
+			push @lines,$r;
+		} elsif ($r->type eq "CNAME") {
+			print STDERR "query_addrs($dom):  - ".$r->cname."\n";
+			push @lines,$r;
+		} else {
+			print STDERR "query_addrs($dom): unhandled\n";
+		}
+	}
+	return @lines;
 }

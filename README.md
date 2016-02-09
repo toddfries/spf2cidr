@@ -23,3 +23,7 @@ cd /etc/mail && {
 I always am interested in feedback and especially suggestions or tweaks in
 the form of 'diff -u'.  Please contact todd@fries.net if you have any of the
 above.
+
+Prereq:
+
+  Net::DNS
