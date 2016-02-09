@@ -293,16 +293,16 @@ while ($i < ($#hosts + 1))
 	vp "# host $dom\n";
 	for my $r (query_addrs($dom)) {
 		if ($r->type =~ /^A$/) {
-			if (!defined($dominfo{'prefixlen'})) {
-				$dominfo{'prefixlen'} = 32;
-			}
+			#if (!defined($dominfo{'prefixlen'})) {
+			#	$dominfo{'prefixlen'} = 32;
+			#}
 			addcidr($dom, $r->address, $dominfo{'prefixlen'});
 			next;
 		}
 		if ($r->type =~ /^AAAA$/) {
-			if (!defined($dominfo{'prefixlen'})) {
-				$dominfo{'prefixlen'} = 128;
-			}
+			#if (!defined($dominfo{'prefixlen'})) {
+			#	$dominfo{'prefixlen'} = 128;
+			#}
 			addcidr($dom, $r->address, $dominfo{'prefixlen'});
 			next;
 		}
@@ -374,7 +374,7 @@ addcidr
 		return;
 	}
 	if (!defined($prefixlen)) {
-		if ($d =~ /:/) {
+		if ($c =~ /:/) {
 			$prefixlen=128;
 		} else {
 			$prefixlen=32;
