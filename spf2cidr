@@ -165,7 +165,7 @@ while ($i < ($#doms + 1) )
 			if ($item =~ /^v=/) {
 				next;
 			}
-			if ($item =~ /^spf2.0\/pra/) {
+			if ($item =~ /^spf2.0\//) {
 				next;
 			}
 			if ($item =~ /^ptr:(.*)$/) {
