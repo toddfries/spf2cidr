@@ -237,10 +237,33 @@ while ($i < ($#doms + 1) )
 			if ($item =~ /all/i) {
 				next;
 			}
-			printf "# Unhandled item '%s' from dom '%s'\n",
+			printf "# Unhandled item '%s' from '%s'\n",
 			    $item, $dom;
 		}
 	}
+}
+
+sub
+vp
+{
+	my ($str) = @_;
+
+	if ($verbose < 1) {
+		return;
+	}
+	print $str;
+}
+
+sub
+vpf
+{
+	my ($fmt,$str) = @_;
+
+	if ($verbose < 1) {
+		return;
+	}
+	shift @_;
+	printf $fmt,@_;
 }
 
 # 'mx' hosts can only be IPv4, need 'mx6' for IPv6 due to prefixlen usage
@@ -250,7 +273,7 @@ for my $di (@mx)
 	my $dom = $dominfo{'name'};
 	
 	for my $host (query_mx($dom)) {
-		print "# query_mx($dom) returned $host\n";
+		vp "# query_mx($dom) returned $host\n";
 		addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
 	}
 		
@@ -264,7 +287,7 @@ while ($i < ($#hosts + 1))
 	if (!defined($af)) {
 		$af = "";
 	}
-	print "# host $dom\n";
+	vp "# host $dom\n";
 	for my $r (query_addrs($dom)) {
 		if ($r->type =~ /^A$/) {
 			if (!defined($dominfo{'prefixlen'})) {
@@ -284,7 +307,7 @@ while ($i < ($#hosts + 1))
 			addhost($r->cname,$dominfo{'af'},$dominfo{'prefixlen'});
 			next;
 		}
-		printf "# Unhandled record type: %s for %s\n", $r->type, $dom;
+		vpf "# Unhandled record type: %s for %s\n", $r->type, $dom;
 	}
 }
 
@@ -340,10 +363,8 @@ sub
 addcidr
 {
 	my ($d,$c,$prefixlen) = @_;
-	if ($verbose > 0) {
-		printf "# addcidr(%s,%s,%s)\n",$d,$c,
-		    defined($prefixlen)?$prefixlen:"undef";
-	}
+	vpf "# addcidr(%s,%s,%s)\n",$d,$c,
+	    defined($prefixlen)?$prefixlen:"undef";
 
 	$d = sanitize($d);
 	if (!defined($d)) {
@@ -403,7 +424,7 @@ addhost
 	my $p;
 
 	if ($verbose > 0) {
-		printf "# addhost(%s,%s,%s)\n", $d, $af ? $af : "<undef>",
+		vpf "# addhost(%s,%s,%s)\n", $d, $af ? $af : "<undef>",
 		    $prefixlen ? $prefixlen : "<undef>";
 	}
 
@@ -415,7 +436,7 @@ addhost
 		}
 	}
 	%{$p} = %info;
-	printf "# addhost(%s,...): adding to \@hosts\n",$d;
+	vpf "# addhost(%s,...): adding to \@hosts\n",$d;
 
 	push @hosts,$p;
 }
@@ -473,21 +494,21 @@ query_txt
 
 	my $reply = $res->send($dom, "TXT");
 	if (! $reply) {
-		print "# query_txt($dom): TXT Query failed\n";
+		vp "# query_txt($dom): TXT Query failed\n";
 		return ();
 	}
 	my @lines;
 	for my $r ($reply->answer) {
-		print "# query_txt($dom): ".ref($r)."\n";
+		vp "# query_txt($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::TXT") {
 			my $line = "";
 			foreach my $txt ($r->txtdata) {
-				print "# query_txt($dom):  - ".$txt."\n";
+				vp "# query_txt($dom):  - ".$txt."\n";
 				$line .= $txt;
 			}
 			push @lines,$line;
 		} else {
-			print "# query_txt($dom): unhandled\n";
+			vp "# query_txt($dom): unhandled\n";
 		}
 	}
 	return @lines;
@@ -505,15 +526,15 @@ query_mx
 	}
 	my @hosts;
 	for my $r (@lines) {
-		print "# query_mx($dom): ".ref($r)."\n";
+		vp "# query_mx($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::MX") {
-			print "# query_mx($dom):  - ".$r->exchange."\n";
+			vp "# query_mx($dom):  - ".$r->exchange."\n";
 			push @hosts,$r->exchange;
 		} else {
 			print "# query_mx($dom): unhandled\n";
 		}
 	}
-	print "# query_mx($dom): returning @hosts\n";
+	vp "# query_mx($dom): returning @hosts\n";
 	return @hosts;
 }
 
@@ -522,28 +543,28 @@ query_addrs
 {
 	my ($dom) = @_;
 
-	print "# query_addrs($dom): start\n";
+	vp "# query_addrs($dom): start\n";
 	my @lines = ();
 
 	foreach my $af (('A','AAAA','CNAME')) {
 	my $reply = $res->send($dom, $af);
 	if (! $reply) {
-		print "# query_addrs($dom,$af): search failed\n";
+		vp "# query_addrs($dom,$af): search failed\n";
 		next;
 	}
 	for my $r ($reply->answer) {
-		print "# query_addrs($dom,$af): ".ref($r)." type = ".$r->type."\n";
+		vp "# query_addrs($dom,$af): ".ref($r)." type = ".$r->type."\n";
 		if ($r->type eq "A" || $r->type eq "AAAA") {
-			print "# query_addrs($dom,$af):  - ".$r->address."\n";
+			vp "# query_addrs($dom,$af):  - ".$r->address."\n";
 			push @lines,$r;
 		} elsif ($r->type eq "CNAME") {
-			print "# query_addrs($dom,$af):  - ".$r->cname."\n";
+			vp "# query_addrs($dom,$af):  - ".$r->cname."\n";
 			push @lines,$r;
 		} else {
 			print "# query_addrs($dom,$af): unhandled\n";
 		}
 	}
 	}
-	print "# query_addrs($dom): returning @lines\n";
+	vp "# query_addrs($dom): returning @lines\n";
 	return @lines;
 }
