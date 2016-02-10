@@ -1,6 +1,11 @@
+o track domain originally requesting an included other domain so if
+
+   example.com TXT "v=spf1 include:a.example.com -all"
+   a.example.com TXT "v=spf1 mx -all"
+
+  .. 'mx' is calculated on 'example.com' not 'a.example.com'
 o add -t <table> to update a file and subsequently a pf table
 o add -n to not update a pf table (testing mode!)
-o make perl query dns directly instead of forking 'host...|'
 o makefiles for proper installation and potential package management integration
 o keep a persistent database of mappings, some hosts change so frequently I
   wonder if they are doing some round-robin dns and therefore a host might
@@ -23,3 +28,6 @@ o keep a persistent database of mappings, some hosts change so frequently I
   
   -                           66.220.155.17       # smtpin.mx.facebook.com
   +                           66.220.155.16       # smtpin.mx.facebook.com
+
+done:
+x make perl query dns directly instead of forking 'host...|'
