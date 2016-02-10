@@ -141,6 +141,9 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /^amazonses:/) {
 			next;
 		}
+		if ($line =~ /^ALIAS for /i) {
+			next;
+		}
 		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
 			printf "# Non SPF TXT record '%s' for '%s'\n",
 			    $line, $dom;
