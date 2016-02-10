@@ -28,7 +28,6 @@ our @doms;
 our %cidrs;
 our @mx;
 our @hosts;
-#our ($opt_v, $opt_o, $opt_r);
 our $res;
 getopts('vo:r:',
 	{
@@ -68,6 +67,8 @@ if (!defined($res)) {
 	$res = Net::DNS::Resolver->new(
 		persistent_udp => 1,
 		persistent_tcp => 1,
+		recurse => 1,
+		debug => 0,
 	);
 }
 if (grep { /:/ } $res->nameservers()) {
@@ -111,13 +112,6 @@ while ($i < ($#doms + 1) )
 		printf("#\n#     %s\n#\n",$dom);
 	}
 	for my $line (query_txt($dom)) {
-		#if (!($line =~ /descriptive text/)) {
-		#	next;
-		#}
-		#$line =~ s/^[^"]*"(.*)"$/$1/;
-		#$line =~ s/" "(a|ip[46]):/ $1:/g;
-		#$line =~ s/" "//g;
-		#$line =~ s/" /"/g;
 		$line =~ s/^"(.*)"$/$1/;
 		$line =~ s/^\s+//;
 		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
