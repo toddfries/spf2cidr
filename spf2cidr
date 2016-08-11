@@ -24,12 +24,13 @@ use OpenBSD::Getopt;
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
 
 my $verbose = 0;
+our $domfile = "/etc/mail/spf-domains";
 our @doms;
 our %cidrs;
 our @mx;
 our @hosts;
 our $res;
-getopts('vo:r:',
+getopts('d:o:r:v',
 	{
 		'v' => sub { $verbose++; },
 		'o' => sub {
@@ -60,6 +61,15 @@ getopts('vo:r:',
 				persistent_tcp => 1,
 			);
 		},
+		'd' => sub {
+			my ($df) = @_;
+			if (!defined($df)) {
+				return;
+			}
+			if (-f $df) {
+				$domfile = $df;
+			}
+		},
 	}
 );
 
@@ -75,7 +85,6 @@ if (grep { /:/ } $res->nameservers()) {
 	$res->prefer_v6(1);
 }
 
-my $domfile = "/etc/mail/spf-domains";
 
 if (defined($ARGV[0])) {
 	for my $dom (@ARGV) {
@@ -126,12 +135,6 @@ while ($i < ($#doms + 1) )
 		if ($line =~ /(android-mdm-enroll=|IPROTA_)/) {
 			next;
 		}
-		if ($line =~ /(==|, Inc\.)$/) {
-			next;
-		}
-		if ($line =~ /o=\~/) {
-			next;
-		}
 		if ($line =~ /^amazonses:/) {
 			next;
 		}
@@ -143,8 +146,14 @@ while ($i < ($#doms + 1) )
 			    $line, $dom;
 			next;
 		}
-		$line =~ s/ip([46]):[ \t]*/ip$1:/g;
-		ITEM: for my $item (split(/ +/,$line))
+		if ($line =~ /(==|, Inc\.)$/) {
+			next;
+		}
+		if ($line =~ /o=\~/) {
+			next;
+		}
+		$line =~ s/ip([46]):\s*/ip$1:/g;
+		ITEM: for my $item (split(/\s+/,$line))
 		{
 			if ($item =~ /^-/) {
 				# most have -all, no need to 'announce' we are skipping this
@@ -503,8 +512,14 @@ query_txt
 		vp "# query_txt($dom): ".ref($r)."\n";
 		if (ref($r) eq "Net::DNS::RR::TXT") {
 			my $line = "";
+			my $lcount=0;
 			foreach my $txt ($r->txtdata) {
-				vp "# query_txt($dom):  - ".$txt."\n";
+				if ($lcount++ > 0) {
+					if ($txt =~ /^(include|ip[46]):/) {
+						$txt = " ".$txt;
+					}
+				}
+				vp "# query_txt($dom):  - '".$txt."'\n";
 				$line .= $txt;
 			}
 			push @lines,$line;
