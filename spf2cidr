@@ -23,7 +23,8 @@ use OpenBSD::Getopt;
 
 $ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
 
-my $verbose = 0;
+our $verbose = 0;
+our $domfile = "/etc/mail/spf-domains";
 our @doms;
 our %cidrs;
 our @mx;
@@ -34,13 +35,10 @@ getopts('vo:r:',
 		'v' => sub { $verbose++; },
 		'o' => sub {
 			my ($info) = @_; 
-			if ($info =~ "^whitelist=") {
+			if ($info =~ /^whitelist=/) {
 				$info =~ s/^whitelist=//;
-				if (0) {
-					printf "Unsupported whitelist: %s\n",
-					    $info;
-					exit(1);
-				}
+			} elsif ($info =~ /^domfile=(.*)$/) {
+				$domfile=$1;
 			} else {
 				printf "# Unsupported option: %s\n",$info;
 				exit(1);
@@ -75,7 +73,6 @@ if (grep { /:/ } $res->nameservers()) {
 	$res->prefer_v6(1);
 }
 
-my $domfile = "/etc/mail/spf-domains";
 
 if (defined($ARGV[0])) {
 	for my $dom (@ARGV) {
@@ -124,6 +121,12 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		if ($line =~ /(android-mdm-enroll=|IPROTA_)/) {
+			next;
+		}
+		if ($line =~ /(docusign|ciscocidomainverification)=[0-9a-f\-]+/) {
+			next;
+		}
+		if ($line =~ /paradot_[0-9]+_\*=[0-9a-f]+/) {
 			next;
 		}
 		if ($line =~ /(==|, Inc\.)$/) {
