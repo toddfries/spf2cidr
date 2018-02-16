@@ -26,4 +26,12 @@ above.
 
 Prereq:
 
+```
   Net::DNS
+```
+
+If you find this useful and wish to donate, I accept donations:
+
+- BTC: [1Bkbew38fKiLRiis9kMWJnUf9Eozp5yY6S](bitcoin:1Bkbew38fKiLRiis9kMWJnUf9Eozp5yY6S)
+
+- DCR: [DsY8PiyHEbFKPD3SmKpUM2Wx8XJsT5VcxSr](decred:DsY8PiyHEbFKPD3SmKpUM2Wx8XJsT5VcxSr)
