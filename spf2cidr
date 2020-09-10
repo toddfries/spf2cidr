@@ -151,8 +151,10 @@ while ($i < ($#doms + 1) )
 			next;
 		}
 		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
+			my $nocr;
+			chomp($nocr = $line);
 			printf "# Non SPF TXT record '%s' for '%s'\n",
-			    $line, $dom;
+			    $nocr, $dom;
 			next;
 		}
 		if ($line =~ /(==|, Inc\.)$/) {
@@ -559,7 +561,10 @@ query_mx
 			print "# query_mx($dom): unhandled\n";
 		}
 	}
-	vp "# query_mx($dom): returning @hosts\n";
+	vp " query_mx($dom): returning...\n";
+	foreach my $h (@hosts) {
+		vp "   ... $h\n";
+	}
 	return @hosts;
 }
 
