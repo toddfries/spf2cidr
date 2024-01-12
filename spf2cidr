@@ -426,8 +426,13 @@ adddom
 
 	$d = sanitize($d);
 
+	if ($d =~ /[\{\}]/) {
+		vpf "# adddom('%s') huh?\n",$d;
+		return;
+	}
+
 	if (@doms) {
-		if (grep /^$d$/,@doms) {
+		if (grep /^${d}$/,@doms) {
 			return;
 		}
 	}
