@@ -166,6 +166,14 @@ while ($i < ($#doms + 1) )
 		$line =~ s/ip([46]):\s*/ip$1:/g;
 		ITEM: for my $item (split(/\s+/,$line))
 		{
+			# we can't handle %{X} where X is:
+			#   i
+			#   ir
+			#   v
+			#  ...etc...
+			if ($item =~ /\%\{/) {
+				next;
+			}
 			if ($item =~ /^-/) {
 				# most have -all, no need to 'announce' we are skipping this
 				if ($item ne "-all") {
