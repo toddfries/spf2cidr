@@ -32,6 +32,7 @@ our @hosts;
 our $res;
 our $depth = 0;
 our %seen_dom;
+our %dns_cache; # key: "TXT:example.com", value: [lines] or undef on failure
 getopts('d:o:r:v',
 	{
 		'v' => sub { $verbose++; },
@@ -90,7 +91,7 @@ if (defined($ARGV[0])) {
 		adddom($dom);
 	}
 } else {
-    if (-f $domfile) {
+	if (-f $domfile) {
 	if (!open(DOMS,$domfile)) {
 		die "Failed to open '$domfile': $!";
 	}
@@ -104,9 +105,9 @@ if (defined($ARGV[0])) {
 		}
 	}
 	close(DOMS) or warn "Error closing '$domfile': $!\n";
-    } else {
+	} else {
 	die "No domain given on cmdline, no domfile, aborting";
-    }
+	}
 }
 
 my $i = 0;
@@ -115,7 +116,7 @@ while ($i < ($#doms + 1) )
 	my $dom = $doms[$i++];
 	$dom =~ s/\.$//;
 	if ($verbose > 0) {
-		printf("#\n#     %s\n#\n",$dom);
+		printf("#\n#	 %s\n#\n",$dom);
 	}
 	for my $line (query_txt($dom)) {
 		$line =~ s/^"(.*)"$/$1/;
@@ -154,7 +155,7 @@ while ($i < ($#doms + 1) )
 			my $nocr;
 			chomp($nocr = $line);
 			printf "# Non SPF TXT record '%s' for '%s'\n",
-			    $nocr, $dom;
+				$nocr, $dom;
 			next;
 		}
 		if ($line =~ /(==|, Inc\.)$/) {
@@ -188,7 +189,7 @@ while ($i < ($#doms + 1) )
 					printf "# %s (%s)\n", $item, $dom;
 				} else {
 					printf "# %s -> %s (%s)\n", $olditem,
-					    $item, $dom;
+						$item, $dom;
 				}
 			}
 			if ($item =~ /^v=/) {
@@ -208,41 +209,41 @@ while ($i < ($#doms + 1) )
 				next;
 			}
 			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6',
-			    '\+ip4', '\+ip6')) {
-			    local *addit;
-			    if ($pre eq "a") {
-			    	*addit = \&addhost;
-			    } elsif ($pre eq "mx") {
+				'\+ip4', '\+ip6')) {
+				local *addit;
+				if ($pre eq "a") {
+					*addit = \&addhost;
+				} elsif ($pre eq "mx") {
 				*addit = \&addmx;
-			    } elsif ($pre =~ m/ip[46]/) {
+				} elsif ($pre =~ m/ip[46]/) {
 				*addit = \&additcidr;
-			    }
-			    if ($item =~ /^${pre}$/i) {
+				}
+				if ($item =~ /^${pre}$/i) {
 				addit($dom, undef, undef, $dom);
 				next ITEM;
-			    }
-			    if ($item =~ /^${pre}\/([0-9]+)$/i) {
+				}
+				if ($item =~ /^${pre}\/([0-9]+)$/i) {
 				addit($dom, 'A', $1, $dom);
 				next ITEM;
-			    }
-			    if ($item =~ /^${pre}:([^\/]+)$/i) {
+				}
+				if ($item =~ /^${pre}:([^\/]+)$/i) {
 				addit($1, undef, undef, $dom);
 				next ITEM;
-			    }
-			    if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/i) {
+				}
+				if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/i) {
 				addit($dom, 'A', $1, $dom);
 				addit($dom, 'AAAA', $2, $dom);
 				next ITEM;
-			    }
-			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/i) {
+				}
+				if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/i) {
 				addit($1, 'A', $2, $dom);
 				next ITEM;
-			    }
-			    if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/i) {
+				}
+				if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/i) {
 				addit($1, 'A', $2);
 				addit($1, 'AAAA', $3);
 				next ITEM;
-			    }
+				}
 			}
 			if ($item =~ /^include:(.*)$/i) {
 				adddom($1);
@@ -267,7 +268,7 @@ while ($i < ($#doms + 1) )
 				next;
 			}
 			printf "# Unhandled item '%s' from '%s'\n",
-			    $item, $dom;
+				$item, $dom;
 		}
 	}
 }
@@ -393,7 +394,7 @@ addcidr
 {
 	my ($d,$c,$prefixlen) = @_;
 	vpf "# addcidr(%s,%s,%s)\n",$d,$c,
-	    defined($prefixlen)?$prefixlen:"undef";
+		defined($prefixlen)?$prefixlen:"undef";
 
 	$d = sanitize($d);
 	if (!defined($d)) {
@@ -467,7 +468,7 @@ addhost
 
 	if ($verbose > 0) {
 		vpf "# addhost(%s,%s,%s)\n", $d, $af ? $af : "<undef>",
-		    $prefixlen ? $prefixlen : "<undef>";
+			$prefixlen ? $prefixlen : "<undef>";
 	}
 
 	if (@hosts) {
@@ -533,32 +534,27 @@ sub
 query_txt
 {
 	my ($dom) = @_;
+	my $key = "TXT:$dom";
+
+	if (exists $dns_cache{$key}) {
+		return @{$dns_cache{$key}} if defined $dns_cache{$key};
+		return ();
+	}
 
 	my $reply = $res->send($dom, "TXT");
 	if (! $reply) {
-		vp "# query_txt($dom): TXT Query failed\n";
+		vp "# query_txt($dom): failed - " . $res->errorstring . "\n";
+		$dns_cache{$key} = undef;
 		return ();
 	}
+
 	my @lines;
 	for my $r ($reply->answer) {
-		vp "# query_txt($dom): ".ref($r)."\n";
-		if (ref($r) eq "Net::DNS::RR::TXT") {
-			my $line = "";
-			my $lcount=0;
-			foreach my $txt ($r->txtdata) {
-				if ($lcount++ > 0) {
-					if ($txt =~ /^(include|ip[46]):/) {
-						$txt = " ".$txt;
-					}
-				}
-				vp "# query_txt($dom):  - '".$txt."'\n";
-				$line .= $txt;
-			}
-			push @lines,$line;
-		} else {
-			vp "# query_txt($dom): unhandled\n";
-		}
+		next unless $r->type eq "TXT";
+		my $line = join '', $r->txtdata;
+		push @lines, $line;
 	}
+	$dns_cache{$key} = \@lines;
 	return @lines;
 }
 
@@ -566,10 +562,17 @@ sub
 query_mx
 {
 	my ($dom) = @_;
+	my $key = "MX:$dom";
+
+	if (exists $dns_cache{$key}) {
+		return @{$dns_cache{$key}} if defined $dns_cache{$key};
+		return ();
+	}
 
 	my @lines = mx($res, $dom);
 	if (! @lines) {
 		print "# query_mx($dom): MX Query failed\n";
+		$dns_cache{$key} = undef;
 		return ();
 	}
 	my @hosts;
@@ -586,6 +589,7 @@ query_mx
 	foreach my $h (@hosts) {
 		vp "   ... $h\n";
 	}
+	$dns_cache{$key} = \@hosts;
 	return @hosts;
 }
 
@@ -593,6 +597,12 @@ sub
 query_addrs
 {
 	my ($dom) = @_;
+	my $key = "A:$dom";
+
+	if (exists $dns_cache{$key}) {
+		return @{$dns_cache{$key}} if defined $dns_cache{$key};
+		return ();
+	}
 
 	vp "# query_addrs($dom): start\n";
 	my @lines = ();
@@ -617,5 +627,6 @@ query_addrs
 	}
 	}
 	vp "# query_addrs($dom): returning @lines\n";
+	$dns_cache{$key} = \@lines;
 	return @lines;
 }
