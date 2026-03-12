@@ -30,6 +30,8 @@ our %cidrs;
 our @mx;
 our @hosts;
 our $res;
+our $depth = 0;
+our %seen_dom;
 getopts('d:o:r:v',
 	{
 		'v' => sub { $verbose++; },
@@ -429,21 +431,29 @@ sub
 adddom
 {
 	my ($d) = @_;
-
 	$d = sanitize($d);
+	return unless defined $d;
+
+	if ($seen_dom{$d}++) {
+		warn "# Cycle or duplicate detected: $d (skipping)\n" if $verbose;
+		return;
+	}
+
+	if (0) { # seems off, no reset, a large input of domains would overload this easily
+	if ($depth >= 12) {
+		warn "# Include/redirect depth limit exceeded at $d\n" if $verbose;
+		return;
+	}
+	}
+
+	local $depth = $depth + 1;
 
 	if ($d =~ /[\{\}]/) {
 		vpf "# adddom('%s') huh?\n",$d;
 		return;
 	}
 
-	if (@doms) {
-		if (grep /^${d}$/,@doms) {
-			return;
-		}
-	}
-
-	push @doms,$d;
+	push @doms,$d unless grep { $_ eq $d } @doms;
 }
 
 sub
