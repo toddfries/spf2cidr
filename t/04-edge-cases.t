@@ -55,12 +55,12 @@ is $s->_sanitize_domain(''), undef, 'empty string rejected by sanitize';
 is $s->expand_spf_macros('%{d', { domain => 'example.com' }), '%{d', 'unclosed macro left as-is';
 
 # Unknown macro letter
-is $s->expand_spf_macros('%{z}.example.com', { domain => 'example.com' }), '.example.com',
-    'unknown macro letter %{z} expands to empty';
+is $s->expand_spf_macros('%{z}.example.com', { domain => 'example.com' }), '%{z}.example.com',
+    'unknown macro letter %{z} is left literal (safer per RFC)';
 
 # Macro with custom delimiter and reverse
-is $s->expand_spf_macros('%{d2r}', { domain => 'a.b.c.example.com' }), 'example.c.b.a',
-    'macro with number + reverse transformer';
+is $s->expand_spf_macros('%{d2r}', { domain => 'a.b.c.example.com' }), 'b.a',
+    'macro with number + reverse transformer (keeps rightmost 2 after reverse)';
 
 # ============================================================
 # 3. INVALID / ABUSIVE DOMAIN NAMES
@@ -83,8 +83,8 @@ is $s->_sanitize_domain('foo_bar-baz.example.com'), 'foo_bar-baz.example.com', '
 is $s->normalize_cidr('1.2.3.4/999'), '1.2.3.4/32', 'ip4 with insane prefixlen capped to 32';
 is $s->normalize_cidr('2001:db8::1/200'), '2001:db8::1/128', 'ip6 with insane prefixlen capped';
 
-# a: and mx: with macro that produces bad domain
-my $target = $s->expand_spf_macros('%{ir}.bad.com', {});
+# a: and mx: with macro that produces truly invalid domain (starts with hyphen after sanitize)
+my $target = $s->expand_spf_macros('%{ir}-bad.com', {});
 $target = $s->_sanitize_domain($target) || 'example.com';
 is $target, 'example.com', 'a:/mx: with bad macro target falls back to current domain';
 

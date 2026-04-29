@@ -82,7 +82,7 @@ sub expand_spf_macros {
     $text =~ s{
         \%\{ 
             ([slodivhcr t])          # letter
-            ([0-9]*r?|r[0-9]*)?      # optional transformers: num, r, or rnum/numr
+            ([0-9]*r|r?[0-9]*)?      # optional transformers: 2r, r2, r, 2, etc.
             ([.\-+,/_=]*)?           # optional delimiter
         \}
     }{
@@ -198,7 +198,7 @@ sub _expand_ipv6 {
 sub parse_spf_record {
     my ($self, $txt) = @_;
     return [] unless $txt;
-    $txt =~ s/^"//; $txt =~ s/"$//;  # strip outer quotes if present
+    $txt =~ s/"//g;   # remove ALL double quotes (handles split TXT strings like "part1" "part2")
     $txt =~ s/\s+/ /g;
 
     # Normalize common real-world malformed SPF records that omit the colon,
