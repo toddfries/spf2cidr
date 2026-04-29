@@ -57,6 +57,11 @@ sub resolver {
             persistent_tcp  => 1,
             tcp_timeout     => $self->config->{timeout},
             udp_timeout     => $self->config->{timeout},
+            igntc           => 1,      # ignore truncation (try TCP automatically)
+            retrans         => 3,      # retransmit timer (seconds)
+            retry           => 2,      # number of retries
+            dnssec          => 0,      # we don't need DNSSEC for SPF
+            adflag          => 0,
         );
         if (grep { /:/ } $r->nameservers) { $r->prefer_v6(1); }
         $self->{resolver} = $r;
@@ -408,7 +413,15 @@ sub _query_txt {
     if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
 
     $self->stats->{dns_queries}++;
-    my $reply = $self->resolver->send($domain, 'TXT');
+    my $reply;
+    eval {
+        $reply = $self->resolver->send($domain, 'TXT');
+    };
+    if ($@) {
+        carp "TXT query failed for $domain: $@" if $self->config->{verbose};
+        $self->_set_cache($key, []);
+        return [];
+    }
     my @lines;
     if ($reply) {
         for my $r ($reply->answer) {
@@ -432,7 +445,14 @@ sub _query_addrs {
     $self->stats->{dns_queries}++;
     my @addrs;
     for my $type (qw(A AAAA)) {
-        my $reply = $self->resolver->send($domain, $type);
+        my $reply;
+        eval {
+            $reply = $self->resolver->send($domain, $type);
+        };
+        if ($@) {
+            carp "$type query failed for $domain: $@" if $self->config->{verbose};
+            next;
+        }
         next unless $reply;
         for my $r ($reply->answer) {
             if ($r->type eq 'A' || $r->type eq 'AAAA') {
@@ -456,8 +476,13 @@ sub _query_mx {
 
     $self->stats->{dns_queries}++;
     my @mx;
-    my $reply = $self->resolver->send($domain, 'MX');
-    if ($reply) {
+    my $reply;
+    eval {
+        $reply = $self->resolver->send($domain, 'MX');
+    };
+    if ($@) {
+        carp "MX query failed for $domain: $@" if $self->config->{verbose};
+    } elsif ($reply) {
         for my $r ($reply->answer) {
             push @mx, $r->exchange if $r->type eq 'MX';
         }
@@ -545,14 +570,32 @@ sub is_ip_authorized {
 sub _sanitize_domain {
     my ($self, $d) = @_;
     return unless defined $d && length $d;
-    $d =~ s/^\.+//;      # strip leading dots (prevents empty first label, e.g. "._spf...")
-    $d =~ s/\.+$//;      # strip trailing dots
+
+    # Strip leading/trailing dots and whitespace
+    $d =~ s/^\.+//;
+    $d =~ s/\.+$//;
+    $d =~ s/^\s+//;
+    $d =~ s/\s+$//;
+
     $d = lc $d;
-    $d =~ s/[^a-z0-9._-]/ /g;  # allow underscore (used in _spf, _dmarc etc.); replace others with space for safety
-    $d =~ s/\s+//g;            # remove any invalid chars we turned into spaces
-    $d =~ s/\.+/\./g;          # collapse consecutive dots
-    return $d if $d =~ /\./ && $d !~ /^\./ && length($d) > 0;
-    return;
+
+    # Allow only valid DNS label characters (underscore is common in _spf / _dmarc)
+    $d =~ s/[^a-z0-9._-]/ /g;
+    $d =~ s/\s+//g;
+
+    # Collapse multiple dots (empty labels)
+    $d =~ s/\.+/\./g;
+
+    # Reject if empty, no dot, starts/ends with dot/hyphen, or any label >63 chars or total >255
+    return unless $d =~ /\./ && $d !~ /^\./ && $d !~ /\.$/ && length($d) <= 255;
+    return unless $d !~ /^-/ && $d !~ /-$/;
+
+    for my $label (split /\./, $d) {
+        return unless length($label) > 0 && length($label) <= 63;
+        return unless $label !~ /^-/ && $label !~ /-$/;
+    }
+
+    return $d;
 }
 
 # ==================== LOG WATCHER / AUTO WHITELIST ====================
