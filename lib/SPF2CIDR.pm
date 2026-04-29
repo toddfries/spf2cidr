@@ -22,6 +22,7 @@ our @EXPORT_OK = qw(
 # Default config
 my %DEFAULTS = (
     max_lookups     => 10,
+    max_results     => 4096,   # safety cap on number of CIDRs returned
     timeout         => 5,
     verbose         => 0,
     strict          => 0,      # permerror on unknown mech?
@@ -35,7 +36,6 @@ sub new {
     my ($class, %opts) = @_;
     my $self = bless {
         _resolver_opt => $opts{resolver},
-        cache      => $opts{cache} || {},
         config     => { %DEFAULTS, %opts },
         stats      => { dns_queries => 0, lookups => 0, cache_hits => 0 },
     }, $class;
@@ -69,7 +69,6 @@ sub resolver {
     return $self->{resolver};
 }
 sub config   { $_[0]->{config} }
-sub cache    { $_[0]->{cache} }
 sub stats    { $_[0]->{stats} }
 
 # ==================== MACRO EXPANSION ====================
@@ -237,7 +236,7 @@ sub resolve_spf_cidrs {
     };
 
     my $cache_key = "CIDR:$domain:" . ($client_ip || 'static');
-    if (my $cached = $self->_get_cache($cache_key)) {
+    if (my $cached = SPF2CIDR::Cache->get($cache_key)) {
         $self->stats->{cache_hits}++;
         return $cached;
     }
@@ -255,7 +254,12 @@ sub resolve_spf_cidrs {
     }
 
     my @cidrs = sort keys %results;
-    $self->_set_cache($cache_key, \@cidrs);
+    my $maxr = $self->config->{max_results};
+    if (@cidrs > $maxr) {
+        @cidrs = @cidrs[0 .. $maxr-1];
+        carp "Result limit ($maxr) exceeded for $domain — truncating" if $self->config->{verbose};
+    }
+    SPF2CIDR::Cache->set($cache_key, \@cidrs, $self->config->{cache_ttl});
     return \@cidrs;
 }
 
@@ -299,7 +303,8 @@ sub _process_mechanism {
     if ($item =~ /^include:(.+)$/i) {
         my $target = $self->expand_spf_macros($1, $ctx);
         $target = $self->_sanitize_domain($target);
-        return unless $target;  # skip bad/empty targets (e.g. macro expanded to empty or leading dot)
+        return unless $target;
+        return if $seen->{$target}++;   # check expanded target to catch macro-induced loops
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             $self->_resolve_domain($target, $ctx, $lookups_ref, $max, $seen, $results, $opts);
@@ -311,6 +316,7 @@ sub _process_mechanism {
         my $target = $self->expand_spf_macros($1, $ctx);
         $target = $self->_sanitize_domain($target);
         return unless $target;
+        return if $seen->{$target}++;
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             # redirect replaces policy, but for whitelist we union anyway
@@ -399,7 +405,7 @@ sub _process_mechanism {
     if ($self->config->{strict}) {
         croak "Unknown SPF mechanism: $item (permerror)";
     } else {
-        carp "Unhandled SPF mechanism '$item' in $current_domain" if $self->config->{verbose};
+        carp "Unhandled SPF mechanism '$item' in $current_domain — ignoring (use --strict for RFC compliance)" if $self->config->{verbose};
     }
 }
 
@@ -410,7 +416,7 @@ sub _query_txt {
     $domain = $self->_sanitize_domain($domain);
     return [] unless $domain;
     my $key = "TXT:$domain";
-    if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
+    if (my $c = SPF2CIDR::Cache->get($key)) { $self->stats->{cache_hits}++; return $c; }
 
     $self->stats->{dns_queries}++;
     my $reply;
@@ -431,7 +437,7 @@ sub _query_txt {
     } else {
         carp "TXT query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
     }
-    $self->_set_cache($key, \@lines);
+    SPF2CIDR::Cache->set($key, \@lines, $self->config->{cache_ttl});
     return \@lines;
 }
 
@@ -440,7 +446,7 @@ sub _query_addrs {
     $domain = $self->_sanitize_domain($domain);
     return [] unless $domain;
     my $key = "ADDR:$domain";
-    if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
+    if (my $c = SPF2CIDR::Cache->get($key)) { $self->stats->{cache_hits}++; return $c; }
 
     $self->stats->{dns_queries}++;
     my @addrs;
@@ -463,7 +469,7 @@ sub _query_addrs {
             }
         }
     }
-    $self->_set_cache($key, \@addrs);
+    SPF2CIDR::Cache->set($key, \@addrs, $self->config->{cache_ttl});
     return \@addrs;
 }
 
@@ -472,7 +478,7 @@ sub _query_mx {
     $domain = $self->_sanitize_domain($domain);
     return [] unless $domain;
     my $key = "MX:$domain";
-    if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
+    if (my $c = SPF2CIDR::Cache->get($key)) { $self->stats->{cache_hits}++; return $c; }
 
     $self->stats->{dns_queries}++;
     my @mx;
@@ -489,28 +495,13 @@ sub _query_mx {
     } else {
         carp "MX query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
     }
-    $self->_set_cache($key, \@mx);
+    SPF2CIDR::Cache->set($key, \@mx, $self->config->{cache_ttl});
     return \@mx;
 }
 
-# Simple time-based cache
-sub _get_cache {
-    my ($self, $key) = @_;
-    my $ent = $self->cache->{$key};
-    return unless $ent;
-    if (time - $ent->{time} > $self->config->{cache_ttl}) {
-        delete $self->cache->{$key};
-        return;
-    }
-    return $ent->{val};
-}
+# Cache is now provided by SPF2CIDR::Cache (shared process-wide)
 
-sub _set_cache {
-    my ($self, $key, $val) = @_;
-    $self->cache->{$key} = { val => $val, time => time };
-}
-
-sub clear_cache { $_[0]->{cache} = {} }
+sub clear_cache { SPF2CIDR::Cache->clear() }
 
 # ==================== UTILITIES ====================
 
