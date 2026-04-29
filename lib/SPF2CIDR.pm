@@ -257,6 +257,7 @@ sub resolve_spf_cidrs {
 sub _resolve_domain {
     my ($self, $domain, $ctx, $lookups_ref, $max, $seen, $results, $opts) = @_;
     $domain = $self->_sanitize_domain($domain);
+    return unless $domain;  # skip empty or malformed domains (e.g. from bad macro expansion)
     return if $seen->{$domain}++;
     return if $$lookups_ref > $max;
 
@@ -292,6 +293,8 @@ sub _process_mechanism {
 
     if ($item =~ /^include:(.+)$/i) {
         my $target = $self->expand_spf_macros($1, $ctx);
+        $target = $self->_sanitize_domain($target);
+        return unless $target;  # skip bad/empty targets (e.g. macro expanded to empty or leading dot)
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             $self->_resolve_domain($target, $ctx, $lookups_ref, $max, $seen, $results, $opts);
@@ -301,6 +304,8 @@ sub _process_mechanism {
 
     if ($item =~ /^redirect=(.+)$/i) {
         my $target = $self->expand_spf_macros($1, $ctx);
+        $target = $self->_sanitize_domain($target);
+        return unless $target;
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             # redirect replaces policy, but for whitelist we union anyway
@@ -529,11 +534,14 @@ sub is_ip_authorized {
 
 sub _sanitize_domain {
     my ($self, $d) = @_;
-    return unless $d;
-    $d =~ s/\.$//;
+    return unless defined $d && length $d;
+    $d =~ s/^\.+//;      # strip leading dots (prevents empty first label, e.g. "._spf...")
+    $d =~ s/\.+$//;      # strip trailing dots
     $d = lc $d;
-    $d =~ s/[^a-z0-9.-]//g;
-    return $d if $d =~ /\./;
+    $d =~ s/[^a-z0-9._-]/ /g;  # allow underscore (used in _spf, _dmarc etc.); replace others with space for safety
+    $d =~ s/\s+//g;            # remove any invalid chars we turned into spaces
+    $d =~ s/\.+/\./g;          # collapse consecutive dots
+    return $d if $d =~ /\./ && $d !~ /^\./ && length($d) > 0;
     return;
 }
 
