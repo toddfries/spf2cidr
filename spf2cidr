@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2012 Todd T. Fries <todd@fries.net>
+# Copyright (c) 2026 Todd T. Fries <todd@fries.net>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -16,617 +16,88 @@
 
 use strict;
 use warnings;
+use Getopt::Long;
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+use SPF2CIDR;
 
-use Net::DNS;
+my %opts;
+GetOptions(
+    \%opts,
+    'v|verbose+',
+    'd|domfile=s',
+    'o|output=s',
+    'r|resolver=s',
+    'w|watch',
+    't|table=s',
+    'h|help',
+    'version',
+) or usage();
 
-use OpenBSD::Getopt;
+if ($opts{version}) {
+    print "spf2cidr $SPF2CIDR::VERSION\n"; exit 0;
+}
+usage() if $opts{h};
 
-$ENV{'PATH'}="/sbin:/bin:/usr/sbin:/usr/bin";
-
-my $verbose = 0;
-our $domfile = "/etc/mail/spf-domains";
-our @doms;
-our %cidrs;
-our @mx;
-our @hosts;
-our $res;
-our $depth = 0;
-our %seen_dom;
-our %dns_cache; # key: "TXT:example.com", value: [lines] or undef on failure
-getopts('d:o:r:v',
-	{
-		'v' => sub { $verbose++; },
-		'o' => sub {
-			my ($info) = @_; 
-			if ($info =~ /^whitelist=/) {
-				$info =~ s/^whitelist=//;
-			} elsif ($info =~ /^domfile=(.*)$/) {
-				$domfile=$1;
-			} else {
-				printf "# Unsupported option: %s\n",$info;
-				exit(1);
-			}
-		},
-		'r' => sub {
-			my ($nameserver) = @_;
-			if (!defined($nameserver)) {
-				return;
-			}
-
-			$res = Net::DNS::Resolver->new(
-				nameservers => [$nameserver],
-				recurse => 1,
-				debug => 0,
-				persistent_udp => 1,
-				persistent_tcp => 1,
-			);
-		},
-		'd' => sub {
-			my ($df) = @_;
-			if (!defined($df)) {
-				return;
-			}
-			if (-f $df) {
-				$domfile = $df;
-			}
-		},
-	}
+my $spf = SPF2CIDR->new(
+    verbose => $opts{v} || 0,
+    pf_table => $opts{t} || 'spf',
 );
 
-if (!defined($res)) {
-	$res = Net::DNS::Resolver->new(
-		persistent_udp => 1,
-		persistent_tcp => 1,
-		recurse => 1,
-		debug => 0,
-	);
-}
-if (grep { /:/ } $res->nameservers()) {
-	$res->prefer_v6(1);
+if ($opts{w}) {
+    $spf->watch_log_and_whitelist(
+        $opts{log} || undef,
+        $opts{d} || '/etc/mail/spf-domains',
+        $opts{t} || 'spf'
+    );
+    exit 0;
 }
 
-
-if (defined($ARGV[0])) {
-	for my $dom (@ARGV) {
-		adddom($dom);
-	}
+my @domains;
+if (defined $ARGV[0]) {
+    @domains = @ARGV;
+} elsif ($opts{d} && -f $opts{d}) {
+    open my $fh, '<', $opts{d} or die "open $opts{d}: $!";
+    while (<$fh>) {
+        s/#.*//; chomp; s/^\s+//; s/\s+$//;
+        push @domains, $_ if length;
+    }
+    close $fh;
 } else {
-	if (-f $domfile) {
-	if (!open(DOMS,$domfile)) {
-		die "Failed to open '$domfile': $!";
-	}
-	while(<DOMS>) {
-		s/#.*$//;
-		s/[ \t]*//;
-		if (length($_) > 0) {
-			my $dom;
-			chomp($dom = $_);
-			adddom($dom);
-		}
-	}
-	close(DOMS) or warn "Error closing '$domfile': $!\n";
-	} else {
-	die "No domain given on cmdline, no domfile, aborting";
-	}
+    usage("No domains or domfile given");
 }
 
-my $i = 0;
-while ($i < ($#doms + 1) )
-{
-	my $dom = $doms[$i++];
-	$dom =~ s/\.$//;
-	if ($verbose > 0) {
-		printf("#\n#	 %s\n#\n",$dom);
-	}
-	for my $line (query_txt($dom)) {
-		$line =~ s/^"(.*)"$/$1/;
-		$line =~ s/^\s+//;
-		if ($line =~ /[a-z][a-z0-9-]+-verification/i) {
-			next;
-		}
-		if ($line =~ /((ms|osiagentregurl)=|contact:|v=msv1)/i) {
-			next;
-		}
-		if ($line =~ /(v=DKIM1|k=rsa)/) {
-			next;
-		}
-		if ($line =~ /(android-mdm-enroll=|IPROTA_)/) {
-			next;
-		}
-		if ($line =~ /(docusign|ciscocidomainverification)=[0-9a-f\-]+/) {
-			next;
-		}
-		if ($line =~ /paradot_[0-9]+_\*=[0-9a-f]+/) {
-			next;
-		}
-		if ($line =~ /(==|, Inc\.)$/) {
-			next;
-		}
-		if ($line =~ /o=\~/) {
-			next;
-		}
-		if ($line =~ /^amazonses:/) {
-			next;
-		}
-		if ($line =~ /^ALIAS for /i) {
-			next;
-		}
-		if (!($line =~ /^v=spf/ || $line =~ /^spf2/)) {
-			my $nocr;
-			chomp($nocr = $line);
-			printf "# Non SPF TXT record '%s' for '%s'\n",
-				$nocr, $dom;
-			next;
-		}
-		if ($line =~ /(==|, Inc\.)$/) {
-			next;
-		}
-		if ($line =~ /o=\~/) {
-			next;
-		}
-		$line =~ s/ip([46]):\s*/ip$1:/g;
-		ITEM: for my $item (split(/\s+/,$line))
-		{
-			# we can't handle %{X} where X is:
-			#   i
-			#   ir
-			#   v
-			#  ...etc...
-			if ($item =~ /\%\{/) {
-				next;
-			}
-			if ($item =~ /^-/) {
-				# most have -all, no need to 'announce' we are skipping this
-				if ($item ne "-all") {
-					printf "# Skipping negation: %s (%s)\n", $item, $dom;
-				}
-				next;
-			}
-			my $olditem = $item;
-			$item =~ s/^[\+\?\~-]//;
-			if ($verbose > 0) {
-				if ($olditem eq $item) {
-					printf "# %s (%s)\n", $item, $dom;
-				} else {
-					printf "# %s -> %s (%s)\n", $olditem,
-						$item, $dom;
-				}
-			}
-			if ($item =~ /^v=/) {
-				next;
-			}
-			if ($item =~ /^spf2.0\//) {
-				next;
-			}
-			if ($item =~ /^ptr:(.*)$/) {
-				# XXX can this be used in any way?
-				#help($item,$dom);
-				next;
-			}
-			if ($item =~ /^ptr$/) {
-				# XXX can this be used in any way?
-				#help($item, $dom);
-				next;
-			}
-			PRE: for my $pre (('a', 'mx', 'ip4', 'ip6',
-				'\+ip4', '\+ip6')) {
-				local *addit;
-				if ($pre eq "a") {
-					*addit = \&addhost;
-				} elsif ($pre eq "mx") {
-				*addit = \&addmx;
-				} elsif ($pre =~ m/ip[46]/) {
-				*addit = \&additcidr;
-				}
-				if ($item =~ /^${pre}$/i) {
-				addit($dom, undef, undef, $dom);
-				next ITEM;
-				}
-				if ($item =~ /^${pre}\/([0-9]+)$/i) {
-				addit($dom, 'A', $1, $dom);
-				next ITEM;
-				}
-				if ($item =~ /^${pre}:([^\/]+)$/i) {
-				addit($1, undef, undef, $dom);
-				next ITEM;
-				}
-				if ($item =~ /^${pre}\/([0-9]+)\/([0-9]+)$/i) {
-				addit($dom, 'A', $1, $dom);
-				addit($dom, 'AAAA', $2, $dom);
-				next ITEM;
-				}
-				if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)$/i) {
-				addit($1, 'A', $2, $dom);
-				next ITEM;
-				}
-				if ($item =~ /^${pre}:([^\/]+)\/([0-9]+)\/([0-9]+)$/i) {
-				addit($1, 'A', $2);
-				addit($1, 'AAAA', $3);
-				next ITEM;
-				}
-			}
-			if ($item =~ /^include:(.*)$/i) {
-				adddom($1);
-				next;
-			}
-			if ($item =~ /^redirect=(.*)$/i) {
-				adddom($1);
-				next;
-			}
-			if ($item =~ /^exists:(.*)$/i) {
-				# no way to handle as it requires connection
-				# time info (dns lookup based on connecting ip)
-				next;
-			}
-			if ($item =~ /^exp=/i) {
-				# if someday spamd.conf is generated, this
-				# could be used to feed the error message there
-				# maybe ..
-				next;
-			}
-			if ($item =~ /all/i) {
-				next;
-			}
-			printf "# Unhandled item '%s' from '%s'\n",
-				$item, $dom;
-		}
-	}
+my $out = \*STDOUT;
+if ($opts{o}) {
+    open $out, '>', $opts{o} or die "open $opts{o}: $!";
 }
 
-sub
-vp
-{
-	my ($str) = @_;
+$spf->process_domains(\@domains, $out);
 
-	if ($verbose < 1) {
-		return;
-	}
-	print $str;
-}
+sub usage {
+    my $msg = shift;
+    print STDERR "$msg\n\n" if $msg;
+    print STDERR <<EOF;
+Usage: spf2cidr [options] [domain [ip]] ...
 
-sub
-vpf
-{
-	my ($fmt,$str) = @_;
+Options:
+  -v, --verbose       Increase verbosity (show expansions, queries)
+  -d, --domfile=FILE  Read domains (and optional IPs) from FILE (default /etc/mail/spf-domains)
+  -o, --output=FILE   Write output to FILE instead of stdout
+  -w, --watch         Tail spamd log and auto-add authorized CIDRs to pf table on GREY
+  -t, --table=NAME    pf table name for --watch (default "spf")
+  -r, --resolver=IP   Use specific DNS resolver (future)
+  -h, --help          This help
+  --version
 
-	if ($verbose < 1) {
-		return;
-	}
-	shift @_;
-	printf $fmt,@_;
-}
+Examples:
+  spf2cidr example.com
+  spf2cidr "bounce.entrykeyid.com 156.70.46.238"
+  spf2cidr -d /etc/mail/spf-domains -v
+  spf2cidr -w -d /etc/mail/spf-domains -t spf-whitelist
 
-# 'mx' hosts can only be IPv4, need 'mx6' for IPv6 due to prefixlen usage
-for my $di (@mx)
-{
-	my %dominfo = %{$di};
-	my $dom = $dominfo{'name'};
-	
-	for my $host (query_mx($dom)) {
-		vp "# query_mx($dom) returned $host\n";
-		addhost($host,$dominfo{'af'},$dominfo{'prefixlen'});
-	}
-		
-}
-$i = 0;
-while ($i < ($#hosts + 1))
-{
-	my %dominfo = %{$hosts[$i++]};
-	my $dom = $dominfo{'name'};
-	my $af = $dominfo{'af'};
-	if (!defined($af)) {
-		$af = "";
-	}
-	vp "# host $dom\n";
-	for my $r (query_addrs($dom)) {
-		if ($r->type =~ /^A$/) {
-			#if (!defined($dominfo{'prefixlen'})) {
-			#	$dominfo{'prefixlen'} = 32;
-			#}
-			addcidr($dom, $r->address, $dominfo{'prefixlen'});
-			next;
-		}
-		if ($r->type =~ /^AAAA$/) {
-			#if (!defined($dominfo{'prefixlen'})) {
-			#	$dominfo{'prefixlen'} = 128;
-			#}
-			addcidr($dom, $r->address, $dominfo{'prefixlen'});
-			next;
-		}
-		if ($r->type eq "CNAME") {
-			addhost($r->cname,$dominfo{'af'},$dominfo{'prefixlen'});
-			next;
-		}
-		vpf "# Unhandled record type: %s for %s\n", $r->type, $dom;
-	}
-}
-
-for my $c (sort keys %cidrs)
-{
-	my $str = "";
-	my $olds = "";
-	for my $s (sort @{$cidrs{$c}}) {
-		if ($olds =~ /^$s$/i) {
-			next;
-		}
-		$olds = $s;
-		if (length($str) > 0) {
-			$str .= ", ".$s;
-		} else {
-			$str = $s;
-		}
-	}
-	printf "%40s\t# %s\n",$c,$str;
-}
-
-sub
-help
-{
-	my ($item,$dom) = @_;
-
-	printf "# XXX! Would like to implement '%s' from '%s', ".
-	   "diffs welcomed!\n", $item, $dom;
-}
-
-sub
-sanitize
-{
-	my ($d) = @_;
-	if (!defined($d)) {
-		return undef;
-	}
-
-	$d =~ s/\.$//;
-	$d = lc($d);
-
-	return $d;
-}
-
-sub
-additcidr
-{
-	my ($c,$af,$prefixlen,$d) = @_;
-	addcidr($d,$c,$prefixlen);
-}
-
-sub
-addcidr
-{
-	my ($d,$c,$prefixlen) = @_;
-	vpf "# addcidr(%s,%s,%s)\n",$d,$c,
-		defined($prefixlen)?$prefixlen:"undef";
-
-	$d = sanitize($d);
-	if (!defined($d)) {
-		return;
-	}
-	if (!defined($prefixlen)) {
-		if ($c =~ /:/) {
-			$prefixlen=128;
-		} else {
-			$prefixlen=32;
-		}
-		$c .= "/$prefixlen";
-	} else {
-		$c .= "/$prefixlen";
-		my $check;
-		chomp($check = `echo "table <test> { $c }"|pfctl -nvf -`);
-		$check =~ s/^.*{ (.*) }$/$1/;
-		if ($check ne $c) {
-			$c = $check;
-		}
-	}
-
-	my @clist;
-	if (defined($cidrs{$c})) {
-		@clist = @{$cidrs{$c}};
-		if (grep /^$d$/,@clist) {
-			return;
-		}
-	}
-
-	push @{$cidrs{$c}}, $d;
-}
-
-sub
-adddom
-{
-	my ($d) = @_;
-	$d = sanitize($d);
-	return unless defined $d;
-
-	if ($seen_dom{$d}++) {
-		warn "# Cycle or duplicate detected: $d (skipping)\n" if $verbose;
-		return;
-	}
-
-	if (0) { # seems off, no reset, a large input of domains would overload this easily
-	if ($depth >= 12) {
-		warn "# Include/redirect depth limit exceeded at $d\n" if $verbose;
-		return;
-	}
-	}
-
-	local $depth = $depth + 1;
-
-	if ($d =~ /[\{\}]/) {
-		vpf "# adddom('%s') huh?\n",$d;
-		return;
-	}
-
-	push @doms,$d unless grep { $_ eq $d } @doms;
-}
-
-sub
-addhost
-{
-	my ($d,$af,$prefixlen) = @_;
-
-	$d = sanitize($d);
-	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
-	my $p;
-
-	if ($verbose > 0) {
-		vpf "# addhost(%s,%s,%s)\n", $d, $af ? $af : "<undef>",
-			$prefixlen ? $prefixlen : "<undef>";
-	}
-
-	if (@hosts) {
-		for my $h (@hosts) {
-			if (ishostequal($h, $d, $af, $prefixlen)) {
-				return;
-			}
-		}
-	}
-	%{$p} = %info;
-	vpf "# addhost(%s,...): adding to \@hosts\n",$d;
-
-	push @hosts,$p;
-}
-
-sub
-addmx
-{
-	my ($d,$af,$prefixlen) = @_;
-
-	$d = sanitize($d);
-
-	my %info = ( name => $d, af => $af, prefixlen => $prefixlen );
-	my $p;
-
-	if (@mx) {
-		for my $m (@mx) {
-			if (ishostequal($m, $d, $af, $prefixlen)) {
-				return;
-			}
-		}
-	}
-
-	%{$p} = %info;
-	push @mx,$p;
-}
-
-sub
-ishostequal
-{
-	my ($ref, $d, $af, $prefixlen) = @_;
-	my %info = %{$ref};
-
-	
-	my %i = %{$ref};
-	if ($i{'name'} ne $d) {
-		return 0;
-	}
-	if (defined($af) && defined($i{'af'})) {
-		if ($i{'af'} ne $af) {
-			return 0;
-		}
-	}
-	if (defined($prefixlen) && defined($i{'prefixlen'})) {
-		if ($i{'prefixlen'} != $prefixlen) {
-			return 0;
-		}
-	}
-	return 1;
-}
-
-sub
-query_txt
-{
-	my ($dom) = @_;
-	my $key = "TXT:$dom";
-
-	if (exists $dns_cache{$key}) {
-		return @{$dns_cache{$key}} if defined $dns_cache{$key};
-		return ();
-	}
-
-	my $reply = $res->send($dom, "TXT");
-	if (! $reply) {
-		vp "# query_txt($dom): failed - " . $res->errorstring . "\n";
-		$dns_cache{$key} = undef;
-		return ();
-	}
-
-	my @lines;
-	for my $r ($reply->answer) {
-		next unless $r->type eq "TXT";
-		my $line = join '', $r->txtdata;
-		push @lines, $line;
-	}
-	$dns_cache{$key} = \@lines;
-	return @lines;
-}
-
-sub
-query_mx
-{
-	my ($dom) = @_;
-	my $key = "MX:$dom";
-
-	if (exists $dns_cache{$key}) {
-		return @{$dns_cache{$key}} if defined $dns_cache{$key};
-		return ();
-	}
-
-	my @lines = mx($res, $dom);
-	if (! @lines) {
-		print "# query_mx($dom): MX Query failed\n";
-		$dns_cache{$key} = undef;
-		return ();
-	}
-	my @hosts;
-	for my $r (@lines) {
-		vp "# query_mx($dom): ".ref($r)."\n";
-		if (ref($r) eq "Net::DNS::RR::MX") {
-			vp "# query_mx($dom):  - ".$r->exchange."\n";
-			push @hosts,$r->exchange;
-		} else {
-			print "# query_mx($dom): unhandled\n";
-		}
-	}
-	vp " query_mx($dom): returning...\n";
-	foreach my $h (@hosts) {
-		vp "   ... $h\n";
-	}
-	$dns_cache{$key} = \@hosts;
-	return @hosts;
-}
-
-sub
-query_addrs
-{
-	my ($dom) = @_;
-	my $key = "A:$dom";
-
-	if (exists $dns_cache{$key}) {
-		return @{$dns_cache{$key}} if defined $dns_cache{$key};
-		return ();
-	}
-
-	vp "# query_addrs($dom): start\n";
-	my @lines = ();
-
-	foreach my $af (('A','AAAA','CNAME')) {
-	my $reply = $res->send($dom, $af);
-	if (! $reply) {
-		vp "# query_addrs($dom,$af): search failed\n";
-		next;
-	}
-	for my $r ($reply->answer) {
-		vp "# query_addrs($dom,$af): ".ref($r)." type = ".$r->type."\n";
-		if ($r->type eq "A" || $r->type eq "AAAA") {
-			vp "# query_addrs($dom,$af):  - ".$r->address."\n";
-			push @lines,$r;
-		} elsif ($r->type eq "CNAME") {
-			vp "# query_addrs($dom,$af):  - ".$r->cname."\n";
-			push @lines,$r;
-		} else {
-			print "# query_addrs($dom,$af): unhandled\n";
-		}
-	}
-	}
-	vp "# query_addrs($dom): returning @lines\n";
-	$dns_cache{$key} = \@lines;
-	return @lines;
+See also: man pfctl, spamd(8), and the Perl module SPF2CIDR(3)
+EOF
+    my $ret = defined $msg ? 1 : 0;
+    exit $ret;
 }
