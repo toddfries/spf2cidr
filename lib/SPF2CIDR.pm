@@ -332,6 +332,7 @@ sub _process_mechanism {
 
     if ($item =~ /^a(?::([^\/]+))?(?:\/(\d+))?(?:\/(\d+))?$/i) {
         my $target = $1 ? $self->expand_spf_macros($1, $ctx) : $current_domain;
+        $target = $self->_sanitize_domain($target) || $current_domain;
         my $plen4 = $2 || 32;
         my $plen6 = $3 || 128;
         $$lookups_ref++;
@@ -347,6 +348,7 @@ sub _process_mechanism {
 
     if ($item =~ /^mx(?::([^\/]+))?(?:\/(\d+))?(?:\/(\d+))?$/i) {
         my $target = $1 ? $self->expand_spf_macros($1, $ctx) : $current_domain;
+        $target = $self->_sanitize_domain($target) || $current_domain;
         my $plen4 = $2 || 32;
         my $plen6 = $3 || 128;
         $$lookups_ref++;
@@ -374,6 +376,8 @@ sub _process_mechanism {
 
     if ($item =~ /^exists:(.+)$/i) {
         my $target = $self->expand_spf_macros($1, $ctx);
+        $target = $self->_sanitize_domain($target);
+        return unless $target;  # skip bad targets
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             # exists just checks presence; no CIDR to add, but could add if we wanted "any IP for that domain" but no
@@ -398,6 +402,8 @@ sub _process_mechanism {
 
 sub _query_txt {
     my ($self, $domain) = @_;
+    $domain = $self->_sanitize_domain($domain);
+    return [] unless $domain;
     my $key = "TXT:$domain";
     if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
 
@@ -418,6 +424,8 @@ sub _query_txt {
 
 sub _query_addrs {
     my ($self, $domain) = @_;
+    $domain = $self->_sanitize_domain($domain);
+    return [] unless $domain;
     my $key = "ADDR:$domain";
     if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
 
@@ -441,6 +449,8 @@ sub _query_addrs {
 
 sub _query_mx {
     my ($self, $domain) = @_;
+    $domain = $self->_sanitize_domain($domain);
+    return [] unless $domain;
     my $key = "MX:$domain";
     if (my $c = $self->_get_cache($key)) { $self->stats->{cache_hits}++; return $c; }
 

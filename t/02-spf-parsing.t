@@ -31,4 +31,21 @@ ok $s->is_ip_authorized('192.0.2.99', $cidrs), 'IP in /24';
 ok $s->is_ip_authorized('10.0.0.1', $cidrs), 'exact /32';
 ok !$s->is_ip_authorized('192.0.3.1', $cidrs), 'not in range (naive)';
 
+# Sanitize domain (handles leading dots from macro expansion with no IP, underscores, etc.)
+is $s->_sanitize_domain('._spf.mta.salesforce.com'), '_spf.mta.salesforce.com',
+    'sanitize strips leading dot but keeps _spf (Salesforce mta pattern)';
+is $s->_sanitize_domain('..double..dot..'), 'double.dot',
+    'sanitize collapses multiple leading/trailing dots';
+is $s->_sanitize_domain('foo.'), undef, 'sanitize rejects trailing-dot only after cleanup';
+is $s->_sanitize_domain('_dmarc.example.com'), '_dmarc.example.com', 'sanitize preserves underscores';
+is $s->_sanitize_domain(''), undef, 'sanitize rejects empty';
+is $s->_sanitize_domain(undef), undef, 'sanitize rejects undef';
+
+# Macro expansion with missing IP context (common when running without client IP)
+# e.g. Salesforce-style include:%{ir}._spf.mta.%{d} when no IP → leading dot
+my $bad = $s->expand_spf_macros('%{ir}._spf.mta.salesforce.com', { domain => 'salesforce.com' });
+is $bad, '._spf.mta.salesforce.com', 'macro with no IP produces leading-dot name';
+is $s->_sanitize_domain($bad), '_spf.mta.salesforce.com',
+    'sanitize turns it into valid domain (no crash, no empty label)';
+
 done_testing();
