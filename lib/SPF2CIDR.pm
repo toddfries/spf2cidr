@@ -195,6 +195,14 @@ sub parse_spf_record {
     return [] unless $txt;
     $txt =~ s/^"//; $txt =~ s/"$//;  # strip outer quotes if present
     $txt =~ s/\s+/ /g;
+
+    # Normalize common real-world malformed SPF records that omit the colon,
+    # e.g. "ip4 64.125.213.247 include _spf.foo.com" (seen on about.com and others).
+    # This turns them into standard "ip4:64.125.213.247 include:_spf.foo.com" form
+    # so the rest of the parser and _process_mechanism regexes work unchanged.
+    # Handles optional leading qualifier (+, -, ~, ?).
+    $txt =~ s/\b([+?~-]?)(ip[46]|include|a|mx|ptr|exists|redirect|exp)\s+([^\s:]+)/$1$2:$3/gi;
+
     my @tokens = split / /, $txt;
     my @mechs;
     for my $t (@tokens) {
