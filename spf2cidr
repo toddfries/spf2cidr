@@ -20,6 +20,7 @@ use Getopt::Long;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use SPF2CIDR;
+use SPF2CIDR::Cache;
 
 my %opts;
 GetOptions(
