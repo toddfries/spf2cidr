@@ -20,6 +20,17 @@ $mechs = $s->parse_spf_record('v=spf1 ip4 64.125.213.247 ip4 216.223.13.247 incl
 is_deeply $mechs, ['ip4:64.125.213.247', 'ip4:216.223.13.247', 'include:_spf.salesforce.com', 'include:_spf.google.com', '~all'],
     'parse malformed space-separated ip4/include (about.com style)';
 
+# Embedded quotes + mixed bare keywords and colon-qualified mechanisms (movietickets.com case)
+$mechs = $s->parse_spf_record('"\"v=spf1 a mx ptr a:mx0a-00176a04.pphosted.com a:mx0b-00176a04.pphosted.com ip4:64.18.0.0/20 a:dacrelay.fandango.com include:amazonses.com ip4:216.52.167.192/26 include:spf.protection.outlook.com include:sendgrid.net ~all\""');
+is_deeply $mechs,
+    ['a', 'mx', 'ptr', 'a:mx0a-00176a04.pphosted.com', 'a:mx0b-00176a04.pphosted.com', 'ip4:64.18.0.0/20', 'a:dacrelay.fandango.com', 'include:amazonses.com', 'ip4:216.52.167.192/26', 'include:spf.protection.outlook.com', 'include:sendgrid.net', '~all'],
+    'parse embedded quotes + mixed bare/colon-qualified (movietickets.com style)';
+
+# Ensure bare "a" and "mx" are NOT turned into "a:mx" etc.
+$mechs = $s->parse_spf_record('v=spf1 a mx include:_spf.example.com a:mail.example.com ~all');
+is_deeply $mechs, ['a', 'mx', 'include:_spf.example.com', 'a:mail.example.com', '~all'],
+    'parse does not add colon to bare a/mx keywords';
+
 # normalize_cidr
 is $s->normalize_cidr('192.0.2.1'), '192.0.2.1/32', 'bare IPv4 -> /32';
 is $s->normalize_cidr('2001:db8::1/64'), '2001:db8::1/64', 'IPv6 kept';
