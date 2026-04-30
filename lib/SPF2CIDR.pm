@@ -22,7 +22,7 @@ our @EXPORT_OK = qw(
 
 # Default config
 my %DEFAULTS = (
-    max_lookups     => 10,
+    max_lookups     => 25,  # higher than RFC 10 for complete whitelists on complex real-world SPF (e.g. includes deep chains)
     max_results     => 4096,   # safety cap on number of CIDRs returned
     timeout         => 5,
     verbose         => 0,
@@ -326,7 +326,7 @@ sub _process_mechanism {
         my $target = $self->expand_spf_macros($1, $ctx);
         $target = $self->_sanitize_domain($target);
         return unless $target;
-        return if $seen->{$target}++;   # check expanded target to catch macro-induced loops
+        return if $seen->{$target};  # already seen (loop or duplicate include); _resolve_domain marks on entry
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             $self->_resolve_domain($target, $ctx, $lookups_ref, $max, $seen, $results, $opts);
@@ -338,7 +338,7 @@ sub _process_mechanism {
         my $target = $self->expand_spf_macros($1, $ctx);
         $target = $self->_sanitize_domain($target);
         return unless $target;
-        return if $seen->{$target}++;
+        return if $seen->{$target};  # already seen (loop or duplicate redirect)
         $$lookups_ref++;
         if ($$lookups_ref <= $max) {
             # redirect replaces policy, but for whitelist we union anyway

@@ -67,7 +67,43 @@ $cidrs = $s->resolve_spf_cidrs('example.com');
 ok grep(/203.0.113.0\/24/, @$cidrs), 'static ip4';
 ok grep(/203.0.113.10\/32/, @$cidrs), 'mx resolved to IP';
 
-# Test lookup limit protection (would need more includes, but mock simple)
-# Test loop detection via seen
+# ============================================================
+# INCLUDE FOLLOWING TEST (movietickets.com style - verifies fix for recursion/seen bug)
+# ============================================================
+# This ensures includes are properly recursed into (previously broken by post-increment
+# seen check that caused _resolve_domain to skip processing the included domain's SPF).
+# Also tests multiple includes + direct ip4/a/mx, matching real-world complex SPF.
+$mock->{canned}{'TXT:movietickets.com'} = [
+    { type => 'TXT', txtdata => ['v=spf1 a mx ip4:216.52.167.192/26 include:amazonses.com include:spf.protection.outlook.com include:sendgrid.net ~all'] }
+];
+$mock->{canned}{'TXT:amazonses.com'} = [
+    { type => 'TXT', txtdata => ['v=spf1 ip4:199.127.232.0/22 ip4:199.255.192.0/22 ip4:206.55.144.0/20 -all'] }
+];
+$mock->{canned}{'TXT:spf.protection.outlook.com'} = [
+    { type => 'TXT', txtdata => ['v=spf1 ip4:40.107.0.0/16 ip4:52.100.0.0/15 ip6:2a01:111:f400::/48 -all'] }
+];
+$mock->{canned}{'TXT:sendgrid.net'} = [
+    { type => 'TXT', txtdata => ['v=spf1 ip4:167.89.0.0/17 -all'] }
+];
+# Bare a/mx on movietickets would normally need A/MX seeds, but we test the includes + direct ip4 here
+# (full a/mx would add more but not required for this regression test)
+
+$cidrs = $s->resolve_spf_cidrs('movietickets.com');
+ok @$cidrs >= 8, 'got many CIDRs including from includes (not just direct)';
+ok grep(/216.52.167.192/, @$cidrs), 'direct ip4 from movietickets.com';
+ok grep(/199.127.232/, @$cidrs), 'CIDR from included amazonses.com';
+ok grep(/40.107.0.0/, @$cidrs), 'CIDR from included spf.protection.outlook.com';
+ok grep(/2a01:111:f400/, @$cidrs), 'IPv6 CIDR from included outlook';
+ok grep(/167.89.0.0/, @$cidrs), 'CIDR from included sendgrid.net';
+# Ensure no duplicates and all normalized
+is( (grep { $_ eq '216.52.167.192/26' } @$cidrs), 1, 'no duplicate CIDRs' );
+
+# Test loop detection still works (self-include should not infinite loop)
+$mock->{canned}{'TXT:loop.com'} = [
+    { type => 'TXT', txtdata => ['v=spf1 include:loop.com ip4:10.0.0.0/8 -all'] }
+];
+$cidrs = $s->resolve_spf_cidrs('loop.com');
+ok grep(/10.0.0.0/, @$cidrs), 'loop detected, still got direct ip4';
+ok @$cidrs < 5, 'no explosion from include loop';
 
 done_testing();
