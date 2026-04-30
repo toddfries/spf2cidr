@@ -27,6 +27,24 @@ $mechs = $s->parse_spf_record('"v=spf1 ip4:1.2.3.4 " "include:_spf.foo.com ~all"
 is_deeply $mechs, ['ip4:1.2.3.4', 'include:_spf.foo.com', '~all'],
     'split TXT strings (Net::DNS joins them)';
 
+# ============================================================
+# EMBEDDED QUOTES (movietickets.com and similar real-world cases)
+# ============================================================
+
+# The exact movietickets.com SPF record with embedded quotes
+my $movietickets_txt = '"\"v=spf1 a mx ptr a:mx0a-00176a04.pphosted.com a:mx0b-00176a04.pphosted.com ip4:64.18.0.0/20 a:dacrelay.fandango.com include:amazonses.com ip4:216.52.167.192/26 include:spf.protection.outlook.com include:sendgrid.net ~all\""';
+$mechs = $s->parse_spf_record($movietickets_txt);
+ok @$mechs >= 10, 'movietickets.com embedded quotes produces many mechanisms';
+ok grep({ $_ eq 'a' } @$mechs), 'movietickets.com has bare a';
+ok grep({ $_ eq 'mx' } @$mechs), 'movietickets.com has bare mx';
+ok grep({ $_ eq 'ip4:216.52.167.192/26' } @$mechs), 'movietickets.com has ip4:216.52.167.192/26';
+ok grep({ $_ eq 'include:amazonses.com' } @$mechs), 'movietickets.com has include:amazonses.com';
+ok grep({ $_ eq 'include:spf.protection.outlook.com' } @$mechs), 'movietickets.com has include:spf.protection.outlook.com';
+
+# Double-escaped quotes (some DNS tools output this)
+$mechs = $s->parse_spf_record('"\\"v=spf1 ip4:1.2.3.4 ~all\\""');
+ok grep({ $_ eq 'ip4:1.2.3.4' } @$mechs), 'handles double-escaped quotes';
+
 # Old spf2.0 syntax + garbage
 $mechs = $s->parse_spf_record('v=spf1 spf2.0/pra ip4:1.2.3.4 foo:bar ~all');
 is_deeply $mechs, ['ip4:1.2.3.4', 'foo:bar', '~all'],
