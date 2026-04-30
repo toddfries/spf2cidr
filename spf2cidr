@@ -47,6 +47,10 @@ my $spf = SPF2CIDR->new(
     pf_table => $opts{t} || 'spf',
 );
 
+if ($opts{v} && $opts{v} > 1) {
+    print "# Debug mode enabled (verbose level $opts{v})\n";
+}
+
 if ($opts{w}) {
     $spf->watch_log_and_whitelist(
         $opts{log} || undef,
