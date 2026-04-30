@@ -31,6 +31,7 @@ GetOptions(
     'r|resolver=s',
     'w|watch',
     't|table=s',
+    's|strict',
     'h|help',
     'version',
 ) or usage();
@@ -42,6 +43,7 @@ usage() if $opts{h};
 
 my $spf = SPF2CIDR->new(
     verbose => $opts{v} || 0,
+    strict  => $opts{s} || 0,
     pf_table => $opts{t} || 'spf',
 );
 
@@ -87,6 +89,7 @@ Options:
   -o, --output=FILE   Write output to FILE instead of stdout
   -w, --watch         Tail spamd log and auto-add authorized CIDRs to pf table on GREY
   -t, --table=NAME    pf table name for --watch (default "spf")
+  -s, --strict        Treat unknown mechanisms as PermError (RFC compliant)
   -r, --resolver=IP   Use specific DNS resolver (future)
   -h, --help          This help
   --version
