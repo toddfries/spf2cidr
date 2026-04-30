@@ -116,7 +116,7 @@ sub _expand_one_macro {
     } elsif ($letter eq 't') {
         $val = time();
     } else {
-        carp "Unknown SPF macro letter '$letter'" if $self->config->{verbose};
+        carp "# Unknown SPF macro letter '$letter'" if $self->config->{verbose};
         return '';
     }
 
@@ -197,7 +197,8 @@ sub _expand_ipv6 {
 sub parse_spf_record {
     my ($self, $txt) = @_;
     return [] unless $txt;
-    $txt =~ s/"//g;   # remove ALL double quotes (handles split TXT strings like "part1" "part2")
+    $txt =~ s/\\"/"/g;  # unescape quoted quotes first
+    $txt =~ s/"//g;     # remove ALL double quotes (handles split TXT strings like "part1" "part2")
     $txt =~ s/\s+/ /g;
 
     # Normalize common real-world malformed SPF records that omit the colon,
@@ -205,17 +206,22 @@ sub parse_spf_record {
     # This turns them into standard "ip4:64.125.213.247 include:_spf.foo.com" form
     # so the rest of the parser and _process_mechanism regexes work unchanged.
     # Handles optional leading qualifier (+, -, ~, ?).
-    $txt =~ s/\b([+?~-]?)(ip[46]|include|a|mx|ptr|exists|redirect|exp)\s+([^\s:]+)/$1$2:$3/gi;
+    # Only add colon when the following token is NOT another SPF keyword.
+    my $kw = qr/(?:ip[46]|include|a|mx|ptr|exists|redirect|exp|all|v=spf1|spf2\.)/i;
+    $txt =~ s/\b([+?~-]?)(ip[46]|include|ptr|exists|redirect|exp)\s+(?!\s*$kw)([^\s:]+)/$1$2:$3/gi;
+    $txt =~ s/\b([+?~-]?)(a|mx)\s+(?!\s*$kw)([^\s:]+)/$1$2:$3/gi;
 
     my @tokens = split / /, $txt;
     my @mechs;
     for my $t (@tokens) {
+	carp "# DEBUG: token: $t";
         next if $t =~ /^v=spf1$/i;
         next if $t =~ /^spf2\./i;
         # skip some known non-SPF verification strings early
         next if $t =~ /verification|dmarc|dkim/i && length($t) > 20;
         push @mechs, $t;
     }
+    carp "# DEBUG: no mechs for: \"${txt}\"" if !defined $mechs[0];
     return \@mechs;
 }
 
@@ -246,18 +252,26 @@ sub resolve_spf_cidrs {
     my $lookups = 0;
     my $max = $self->config->{max_lookups};
 
+    if ($self->config->{verbose} > 1) {
+        carp "# DEBUG: Starting SPF walk for $domain (client_ip=" . ($client_ip || 'none') . ")";
+    }
+
     eval {
         $self->_resolve_domain($domain, $ctx, \$lookups, $max, \%seen, \%results, $opts);
     };
     if ($@) {
-        carp "SPF resolution error for $domain: $@" if $self->config->{verbose};
+        carp "# SPF resolution error for $domain: $@" if $self->config->{verbose};
+    }
+
+    if ($self->config->{verbose} > 1 && !%results) {
+        carp "# DEBUG: No CIDRs found for $domain (lookups=$lookups)";
     }
 
     my @cidrs = sort keys %results;
     my $maxr = $self->config->{max_results};
     if (@cidrs > $maxr) {
         @cidrs = @cidrs[0 .. $maxr-1];
-        carp "Result limit ($maxr) exceeded for $domain — truncating" if $self->config->{verbose};
+        carp "# Result limit ($maxr) exceeded for $domain — truncating" if $self->config->{verbose};
     }
     SPF2CIDR::Cache->set($cache_key, \@cidrs, $self->config->{cache_ttl});
     return \@cidrs;
@@ -274,6 +288,7 @@ sub _resolve_domain {
     return unless @$txts;
 
     for my $txt (@$txts) {
+	carp "# DEBUG: txt = ${txt}";
         next unless $txt =~ /v=spf1/i || $txt =~ /spf2\./i;
         my $mechs = $self->parse_spf_record($txt);
         for my $item (@$mechs) {
@@ -294,6 +309,10 @@ sub _process_mechanism {
 
     # Skip negative mechanisms for whitelist collection (they don't authorize)
     return if $qualifier eq '-';
+
+    if ($self->config->{verbose} > 1) {
+        carp "# DEBUG: [$current_domain] mechanism: $item (qualifier=$qualifier)";
+    }
 
     if ($item =~ /^all$/i) {
         # -all already skipped, +all or ~all means everything authorized - rare, ignore for safety
@@ -378,7 +397,7 @@ sub _process_mechanism {
 
     if ($item =~ /^ptr(?::(.+))?$/i) {
         if ($self->config->{skip_ptr}) {
-            carp "ptr mechanism skipped (not useful for CIDR whitelist): $item" if $self->config->{verbose} > 1;
+            carp "# ptr mechanism skipped (not useful for CIDR whitelist): $item" if $self->config->{verbose} > 1;
             return;
         }
         # ptr support would require reverse + forward confirm; skip for whitelist use case
@@ -405,7 +424,7 @@ sub _process_mechanism {
     if ($self->config->{strict}) {
         croak "Unknown SPF mechanism: $item (permerror)";
     } else {
-        carp "Unhandled SPF mechanism '$item' in $current_domain — ignoring (use --strict for RFC compliance)" if $self->config->{verbose};
+        carp "# Unhandled SPF mechanism '$item' in $current_domain — ignoring (use --strict for RFC compliance)" if $self->config->{verbose};
     }
 }
 
@@ -424,7 +443,7 @@ sub _query_txt {
         $reply = $self->resolver->send($domain, 'TXT');
     };
     if ($@) {
-        carp "TXT query failed for $domain: $@" if $self->config->{verbose};
+        carp "# TXT query failed for $domain: $@" if $self->config->{verbose};
         $self->_set_cache($key, []);
         return [];
     }
@@ -435,7 +454,7 @@ sub _query_txt {
             push @lines, join('', $r->txtdata);
         }
     } else {
-        carp "TXT query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
+        carp "# TXT query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
     }
     SPF2CIDR::Cache->set($key, \@lines, $self->config->{cache_ttl});
     return \@lines;
@@ -456,7 +475,7 @@ sub _query_addrs {
             $reply = $self->resolver->send($domain, $type);
         };
         if ($@) {
-            carp "$type query failed for $domain: $@" if $self->config->{verbose};
+            carp "# $type query failed for $domain: $@" if $self->config->{verbose};
             next;
         }
         next unless $reply;
@@ -487,13 +506,13 @@ sub _query_mx {
         $reply = $self->resolver->send($domain, 'MX');
     };
     if ($@) {
-        carp "MX query failed for $domain: $@" if $self->config->{verbose};
+        carp "# MX query failed for $domain: $@" if $self->config->{verbose};
     } elsif ($reply) {
         for my $r ($reply->answer) {
             push @mx, $r->exchange if $r->type eq 'MX';
         }
     } else {
-        carp "MX query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
+        carp "# MX query failed for $domain: " . $self->resolver->errorstring if $self->config->{verbose};
     }
     SPF2CIDR::Cache->set($key, \@mx, $self->config->{cache_ttl});
     return \@mx;
@@ -617,7 +636,7 @@ sub watch_log_and_whitelist {
     while (1) {
         my $fh;
         unless (open $fh, '<', $logfile) {
-            carp "Cannot open log $logfile: $!"; sleep 5; next;
+            carp "# Cannot open log $logfile: $!"; sleep 5; next;
         }
         seek $fh, $pos, 0;
         while (my $line = <$fh>) {
@@ -639,7 +658,7 @@ sub watch_log_and_whitelist {
                         print STDERR "  Added $c to <$pf_table> for $dom\n" if $self->config->{verbose};
                     }
                 } else {
-                    carp "IP $ip not authorized by SPF for $dom (possible spoof?)" if $self->config->{verbose};
+                    carp "# IP $ip not authorized by SPF for $dom (possible spoof?)" if $self->config->{verbose};
                 }
             }
         }
@@ -667,7 +686,7 @@ sub _pfctl_add {
     my $cmd = "pfctl -t $table -T add $cidr 2>&1";
     my $out = `$cmd`;
     if ($? != 0 && $out !~ /already exists|added/) {
-        carp "pfctl add $cidr failed: $out";
+        carp "# pfctl add $cidr failed: $out";
     }
 }
 
@@ -676,11 +695,13 @@ sub _pfctl_add {
 sub process_domains {
     my ($self, $domains, $output_fh) = @_;
     $output_fh ||= \*STDOUT;
+
+    my %cidr_to_domains;  # cidr => { domain1 => 1, domain2 => 1, ... }
+
     for my $entry (@$domains) {
         my ($dom, $ip) = split /\s+/, $entry, 2;
         my $cidrs;
         if ($ip) {
-            # support multi: ip1,ip2
             my @ips = split /[, ]+/, $ip;
             my %all;
             for my $i (@ips) {
@@ -692,9 +713,19 @@ sub process_domains {
             $cidrs = $self->resolve_spf_cidrs($dom);
         }
         for my $c (@$cidrs) {
-            printf $output_fh "%-40s # %s\n", $c, $dom;
+            $cidr_to_domains{$c}{$dom} = 1;
         }
     }
+
+    # Output deduplicated CIDRs with combined domain list
+    for my $c (sort keys %cidr_to_domains) {
+        my @doms = sort keys %{ $cidr_to_domains{$c} };
+        printf $output_fh "%-40s # %s\n", $c, join(', ', @doms);
+    }
+
+    # Print cache statistics
+    my $stats = SPF2CIDR::Cache->stats();
+    printf $output_fh "# cache hits/miss: %d/%d\n", $stats->{hits}, $stats->{misses};
 }
 
 1;
