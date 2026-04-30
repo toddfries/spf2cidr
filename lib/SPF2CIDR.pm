@@ -6,6 +6,7 @@ use warnings;
 use Carp qw(croak carp);
 use Scalar::Util qw(blessed);
 use Time::HiRes qw(time);
+use SPF2CIDR::Cache;
 
 our $VERSION = '2.0.0';
 
@@ -214,14 +215,14 @@ sub parse_spf_record {
     my @tokens = split / /, $txt;
     my @mechs;
     for my $t (@tokens) {
-	carp "# DEBUG: token: $t" if $self->config->{verbose};
+	carp "# DEBUG: token: $t" if $self->config->{verbose} > 1;
         next if $t =~ /^v=spf1$/i;
         next if $t =~ /^spf2\./i;
         # skip some known non-SPF verification strings early
         next if $t =~ /verification|dmarc|dkim/i && length($t) > 20;
         push @mechs, $t;
     }
-    carp "# DEBUG: no mechs for: \"${txt}\"" if !defined $mechs[0];
+    carp "# DEBUG: no mechs for: \"${txt}\"" if !defined $mechs[0] && $self->config->{verbose} > 1;
     return \@mechs;
 }
 
@@ -253,7 +254,7 @@ sub resolve_spf_cidrs {
     my $max = $self->config->{max_lookups};
 
     if ($self->config->{verbose} > 1) {
-        carp "# DEBUG: Starting SPF walk for $domain (client_ip=" . ($client_ip || 'none') . ")" if $self->config->{verbose};
+        carp "# DEBUG: Starting SPF walk for $domain (client_ip=" . ($client_ip || 'none') . ")";
     }
 
     eval {
@@ -264,7 +265,7 @@ sub resolve_spf_cidrs {
     }
 
     if ($self->config->{verbose} > 1 && !%results) {
-        carp "# DEBUG: No CIDRs found for $domain (lookups=$lookups)" if $self->config->{verbose};
+        carp "# DEBUG: No CIDRs found for $domain (lookups=$lookups)";
     }
 
     my @cidrs = sort keys %results;
@@ -288,7 +289,7 @@ sub _resolve_domain {
     return unless @$txts;
 
     for my $txt (@$txts) {
-	carp "# DEBUG: txt = ${txt}" if $self->config->{verbose};
+	carp "# DEBUG: txt = ${txt}" if $self->config->{verbose} > 1;
         next unless $txt =~ /v=spf1/i || $txt =~ /spf2\./i;
         my $mechs = $self->parse_spf_record($txt);
         for my $item (@$mechs) {
@@ -311,7 +312,7 @@ sub _process_mechanism {
     return if $qualifier eq '-';
 
     if ($self->config->{verbose} > 1) {
-        carp "# DEBUG: [$current_domain] mechanism: $item (qualifier=$qualifier)" if $self->config->{verbose};
+        carp "# DEBUG: [$current_domain] mechanism: $item (qualifier=$qualifier)";
     }
 
     if ($item =~ /^all$/i) {
@@ -444,7 +445,7 @@ sub _query_txt {
     };
     if ($@) {
         carp "# TXT query failed for $domain: $@" if $self->config->{verbose};
-        $self->_set_cache($key, []);
+        SPF2CIDR::Cache->set($key, []);
         return [];
     }
     my @lines;
