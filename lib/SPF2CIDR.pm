@@ -214,7 +214,7 @@ sub parse_spf_record {
     my @tokens = split / /, $txt;
     my @mechs;
     for my $t (@tokens) {
-	carp "# DEBUG: token: $t";
+	carp "# DEBUG: token: $t" if $self->config->{verbose};
         next if $t =~ /^v=spf1$/i;
         next if $t =~ /^spf2\./i;
         # skip some known non-SPF verification strings early
@@ -253,7 +253,7 @@ sub resolve_spf_cidrs {
     my $max = $self->config->{max_lookups};
 
     if ($self->config->{verbose} > 1) {
-        carp "# DEBUG: Starting SPF walk for $domain (client_ip=" . ($client_ip || 'none') . ")";
+        carp "# DEBUG: Starting SPF walk for $domain (client_ip=" . ($client_ip || 'none') . ")" if $self->config->{verbose};
     }
 
     eval {
@@ -264,7 +264,7 @@ sub resolve_spf_cidrs {
     }
 
     if ($self->config->{verbose} > 1 && !%results) {
-        carp "# DEBUG: No CIDRs found for $domain (lookups=$lookups)";
+        carp "# DEBUG: No CIDRs found for $domain (lookups=$lookups)" if $self->config->{verbose};
     }
 
     my @cidrs = sort keys %results;
@@ -288,7 +288,7 @@ sub _resolve_domain {
     return unless @$txts;
 
     for my $txt (@$txts) {
-	carp "# DEBUG: txt = ${txt}";
+	carp "# DEBUG: txt = ${txt}" if $self->config->{verbose};
         next unless $txt =~ /v=spf1/i || $txt =~ /spf2\./i;
         my $mechs = $self->parse_spf_record($txt);
         for my $item (@$mechs) {
@@ -311,7 +311,7 @@ sub _process_mechanism {
     return if $qualifier eq '-';
 
     if ($self->config->{verbose} > 1) {
-        carp "# DEBUG: [$current_domain] mechanism: $item (qualifier=$qualifier)";
+        carp "# DEBUG: [$current_domain] mechanism: $item (qualifier=$qualifier)" if $self->config->{verbose};
     }
 
     if ($item =~ /^all$/i) {
