@@ -21,7 +21,7 @@ is_deeply $mechs, ['ip4:64.125.213.247', 'ip4:216.223.13.247', 'include:_spf.sal
     'parse malformed space-separated ip4/include (about.com style)';
 
 # Embedded quotes + mixed bare keywords and colon-qualified mechanisms (movietickets.com case)
-$mechs = $s->parse_spf_record('"\"v=spf1 a mx ptr a:mx0a-00176a04.pphosted.com a:mx0b-00176a04.pphosted.com ip4:64.18.0.0/20 a:dacrelay.fandango.com include:amazonses.com ip4:216.52.167.192/26 include:spf.protection.outlook.com include:sendgrid.net ~all\""');
+$mechs = $s->parse_spf_record('\"v=spf1 a mx ptr a:mx0a-00176a04.pphosted.com a:mx0b-00176a04.pphosted.com ip4:64.18.0.0/20 a:dacrelay.fandango.com include:amazonses.com ip4:216.52.167.192/26 include:spf.protection.outlook.com include:sendgrid.net ~all\"');
 is_deeply $mechs,
     ['a', 'mx', 'ptr', 'a:mx0a-00176a04.pphosted.com', 'a:mx0b-00176a04.pphosted.com', 'ip4:64.18.0.0/20', 'a:dacrelay.fandango.com', 'include:amazonses.com', 'ip4:216.52.167.192/26', 'include:spf.protection.outlook.com', 'include:sendgrid.net', '~all'],
     'parse embedded quotes + mixed bare/colon-qualified (movietickets.com style)';
