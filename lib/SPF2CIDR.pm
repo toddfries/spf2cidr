@@ -211,6 +211,8 @@ sub parse_spf_record {
     my $kw = qr/(?:ip[46]|include|a|mx|ptr|exists|redirect|exp|all|v=spf1|spf2\.)/i;
     $txt =~ s/\b([+?~-]?)(ip[46]|include|ptr|exists|redirect|exp)\s+(?!\s*$kw)([^\s:]+)/$1$2:$3/gi;
     $txt =~ s/\b([+?~-]?)(a|mx)\s+(?!\s*$kw)([^\s:]+)/$1$2:$3/gi;
+    # Handle space after colon: "include: _spf" -> "include:_spf", "a: mail" -> "a:mail"
+    $txt =~ s/\b(include|a|mx|ptr|exists|redirect|exp):\s+([^\s]+)/$1:$2/gi;
 
     my @tokens = split / /, $txt;
     my @mechs;
